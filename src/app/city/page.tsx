@@ -93,12 +93,16 @@ export default async function CityPage({ searchParams }: { searchParams: Promise
                 </tbody>
               </table>
               {total > waiting.length && <p className="muted small">Showing the {waiting.length} longest-waiting of {total}.</p>}
+              <a className="small" href={`/api/export/waiting.csv?days=${n}`}>Download the full list (CSV)</a>
             </div>
           )}
         </section>
 
         <section className="card">
-          <h2>Recent changes</h2>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <h2>Recent changes</h2>
+            <a className="small" href="/api/export/recent.csv">Download (CSV)</a>
+          </div>
           <table className="table">
             <thead><tr><th>Date</th><th>Address</th><th>Change</th><th>Source</th></tr></thead>
             <tbody>

@@ -47,7 +47,15 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export default function SubmitFlow({ resume, initialParcel = null }: { resume: ResumeInfo | null; initialParcel?: ParcelHit | null }) {
+export default function SubmitFlow({
+  resume,
+  initialParcel = null,
+  surveyId = null,
+}: {
+  resume: ResumeInfo | null;
+  initialParcel?: ParcelHit | null;
+  surveyId?: string | null;
+}) {
   const [parcel, setParcel] = useState<ParcelHit | null>(resume?.parcel ?? initialParcel);
   const [submissionId, setSubmissionId] = useState<string | null>(resume?.submissionId ?? null);
   const [query, setQuery] = useState("");
@@ -183,6 +191,12 @@ export default function SubmitFlow({ resume, initialParcel = null }: { resume: R
         method: "POST",
         body: JSON.stringify({ conditions, note, vantageConfirmed: vantage }),
       });
+      if (surveyId && parcel) {
+        await api(`/api/surveys/${surveyId}/marks`, {
+          method: "POST",
+          body: JSON.stringify({ parcelId: parcel.parcel_id, result: "blighted", submissionId }),
+        });
+      }
       setDone(true);
     } catch (e) {
       setError((e as Error).message);
@@ -199,7 +213,8 @@ export default function SubmitFlow({ resume, initialParcel = null }: { resume: R
           {parcel?.situs_address ?? parcel?.parcel_id} is in the review queue. Nothing is public until an admin approves it.
         </p>
         <div className="row">
-          <a className="btn" href="/submit">Submit another</a>
+          {surveyId && <a className="btn" href={`/survey/${surveyId}`}>Back to the survey</a>}
+          <a className={surveyId ? "btn secondary" : "btn"} href="/submit">Submit another</a>
           <a className="btn secondary" href="/my">My submissions</a>
         </div>
       </div>

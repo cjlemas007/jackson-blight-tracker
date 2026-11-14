@@ -37,6 +37,7 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
             </select>
           </label>
           <button className="btn secondary">Filter</button>
+          <a className="small" href={`/api/export/needs-check.csv${ward ? `?ward=${ward}` : ""}`}>Download CSV</a>
         </form>
         {rows.length === 0 ? (
           <div className="card muted">Nothing waiting{ward ? " in this ward" : ""}.</div>

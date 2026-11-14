@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import SiteHeader from "@/components/SiteHeader";
 import { currentStaff } from "@/lib/auth/session";
 import { ownerDetail } from "@/lib/rankings";
+import CorrectionForm from "@/components/CorrectionForm";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,10 @@ export default async function OwnerPage({ params }: { params: Promise<{ id: stri
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <a className="small" href={`/api/export/owner.csv?id=${encodeURIComponent(id)}`}>Download all {d.parcels.length} parcels (CSV)</a>
+          <div className="card" style={{ padding: 12, maxWidth: 480, flex: "1 1 300px" }}><CorrectionForm portfolioId={id} /></div>
         </div>
         {hidden > 0 && (
           <p className="muted small" style={{ margin: 0 }}>

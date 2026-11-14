@@ -38,6 +38,7 @@ export default async function StreetsPage({
             </select>
           </label>
           <button className="btn secondary">Apply</button>
+          <a className="small" href={`/api/export/streets.csv?sort=${sort}&min=${min}${surveyedOnly ? "&coverage=surveyed" : ""}`}>Download CSV</a>
         </form>
         <p className="muted small" style={{ margin: 0 }}>
           Verified blighted parcels divided by all parcels on the street (Jackson only). Streets with fewer than {min} parcels

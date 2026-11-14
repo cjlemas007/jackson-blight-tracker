@@ -4,10 +4,10 @@ Map-and-stats site for blighted property in Jackson, MS, built on the Hinds Coun
 See [SPEC.md](SPEC.md) for the product spec and [docs/STEP1_FINDINGS.md](docs/STEP1_FINDINGS.md)
 for what the source data actually looks like.
 
-**Status:** build steps 1–5 done (schema inspection; sync, lifecycle, area/street assignment,
-read-only map; staff submissions, photo pipeline, approval queue; rankings, counters and coverage;
-city-action entry, record imports, City response page). Step 6 (survey mode, exports, embeds,
-methodology and corrections) is next; then a design pass.
+**Status:** all six build steps done (data, lifecycle and map; submissions and approval queue;
+rankings and coverage; City action and imports; survey mode, exports, embeds, methodology,
+corrections and admin dashboard). Next: a design pass, then deployment to Netlify + Supabase.
+See docs/STEP*_NOTES.md.
 See docs/STEP*_NOTES.md.
 
 ## Run it locally

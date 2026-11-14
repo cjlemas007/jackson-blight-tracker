@@ -69,6 +69,7 @@ export default async function OwnersPage({ searchParams }: { searchParams: Promi
             </table>
           </div>
         )}
+        <a className="small" href={`/api/export/owners.csv?tab=${tab}`}>Download this table (CSV)</a>
         <p className="muted small" style={{ margin: 0 }}>
           Unpaid taxes: current-year balances known from county tax records; parcels known only from the county parcel map
           have no tax data. Ownership per the Hinds County land roll and parcel map.

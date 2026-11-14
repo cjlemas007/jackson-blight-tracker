@@ -7,6 +7,7 @@ import { BASEMAP_STYLE, MAP_CENTER } from "@/config";
 import type { FilterOptions } from "@/lib/parcels";
 import ParcelPanel from "./ParcelPanel";
 import HeadlineCounters from "./HeadlineCounters";
+import MobileNav from "./MobileNav";
 import type { Headline } from "@/lib/rankings";
 
 type ColorBy = "owner" | "status";
@@ -31,7 +32,15 @@ const DELINQUENT_HEX = "#e07a1f";
 // Captured when this module first loads, before hydration or a dev double-mount can rewrite the URL.
 const INITIAL_HASH = typeof window === "undefined" ? "" : window.location.hash;
 // ?parcel=<id> (links from owner pages) opens that parcel.
-const INITIAL_PARCEL = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("parcel");
+const INITIAL_QS = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
+const INITIAL_PARCEL = INITIAL_QS.get("parcel");
+// Shareable view: filters live in the query string (?ward=3&st=verified_blighted,city_action&color=status), view in the hash.
+const listParam = (k: string, all: readonly { key: string }[]) => {
+  const v = INITIAL_QS.get(k);
+  if (!v) return all.map((x) => x.key);
+  const keys = v.split(",").filter((x) => all.some((a) => a.key === x));
+  return keys.length ? keys : all.map((x) => x.key);
+};
 
 const MIN_PARCEL_ZOOM = 14;
 
@@ -96,15 +105,16 @@ export default function MapApp({
   const boundaryCache = useRef<Record<string, GeoJSON.FeatureCollection>>({});
   const [ready, setReady] = useState(false);
   const [zoom, setZoom] = useState(12);
-  const [colorBy, setColorBy] = useState<ColorBy>("owner");
+  const [colorBy, setColorBy] = useState<ColorBy>(INITIAL_QS.get("color") === "status" ? "status" : "owner");
+  const [copied, setCopied] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>({
-    ward: "",
-    neighborhood: "",
-    ownerTypes: OWNER_TYPES.map((o) => o.key),
-    statuses: STATUSES.map((s) => s.key),
-    delinquentOnly: false,
+    ward: INITIAL_QS.get("ward") ?? "",
+    neighborhood: INITIAL_QS.get("nbhd") ?? "",
+    ownerTypes: listParam("own", OWNER_TYPES),
+    statuses: listParam("st", STATUSES),
+    delinquentOnly: INITIAL_QS.get("delinq") === "1",
   });
 
   const loadBoundaries = useCallback(async (kind: string) => {
@@ -218,6 +228,16 @@ export default function MapApp({
     map.setFilter("status-points", f);
     map.setPaintProperty("parcels-fill", "fill-color", fillColor(colorBy));
     map.setPaintProperty("parcel-points", "circle-color", fillColor(colorBy));
+    // Keep the URL in step so any view can be shared.
+    const qs = new URLSearchParams();
+    if (filters.ward) qs.set("ward", filters.ward);
+    if (filters.neighborhood) qs.set("nbhd", filters.neighborhood);
+    if (filters.ownerTypes.length !== OWNER_TYPES.length) qs.set("own", filters.ownerTypes.join(","));
+    if (filters.statuses.length !== STATUSES.length) qs.set("st", filters.statuses.join(","));
+    if (filters.delinquentOnly) qs.set("delinq", "1");
+    if (colorBy === "status") qs.set("color", "status");
+    const q = qs.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${q ? `?${q}` : ""}${window.location.hash}`);
   }, [filters, colorBy, ready]);
 
   useEffect(() => {
@@ -262,11 +282,12 @@ export default function MapApp({
         <h1>{siteName}</h1>
         <span className="sub">Jackson, Mississippi</span>
         <span className="spacer" />
-        <nav>
+        <MobileNav>
           <a href="/owners">Owners</a>
           <a href="/streets">Streets</a>
           <a href="/areas">Areas</a>
           <a href="/city">City response</a>
+          <a href="/methodology">How this works</a>
           {staff ? (
             <>
               <a href="/submit">Submit</a>
@@ -276,7 +297,7 @@ export default function MapApp({
           ) : (
             <a href="/login">Staff sign in</a>
           )}
-        </nav>
+        </MobileNav>
       </div>
       <div className="stage">
         <aside className={`sidebar${sidebarOpen ? " open" : ""}`} aria-label="Map filters">
@@ -290,6 +311,17 @@ export default function MapApp({
               <>{t.not_on_roll.toLocaleString()} parcels come only from the county parcel map and have no tax data.</>
             )}
           </div>
+
+          <button
+            className="btn secondary"
+            onClick={async () => {
+              await navigator.clipboard.writeText(window.location.href);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+          >
+            {copied ? "Link copied" : "Copy link to this view"}
+          </button>
 
           <div>
             <h2>Color parcels by</h2>

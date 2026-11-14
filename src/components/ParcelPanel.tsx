@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import CorrectionForm from "./CorrectionForm";
 
 interface HistoryItem {
   id: number;
@@ -231,6 +232,10 @@ export default function ParcelPanel({ county, parcelId, onClose }: { county: str
                   ))}
                 </ul>
               )}
+            </div>
+
+            <div className="section">
+              <CorrectionForm parcelId={data.parcel_id} />
             </div>
           </>
         )}

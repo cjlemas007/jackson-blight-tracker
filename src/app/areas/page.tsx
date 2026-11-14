@@ -74,6 +74,7 @@ export default async function AreasPage({ searchParams }: { searchParams: Promis
           </table>
         </div>
         {rows.length === 0 && <div className="card muted">No fully surveyed areas yet.</div>}
+        <a className="small" href={`/api/export/areas.csv?kind=${kind}${surveyedOnly ? "&coverage=surveyed" : ""}`}>Download this table (CSV)</a>
         <p className="muted small" style={{ margin: 0 }}>
           30/90 days: change in the number of blighted parcels since then, from each parcel&apos;s dated status history.
         </p>

@@ -5,8 +5,12 @@ import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export default async function SubmitPage({ searchParams }: { searchParams: Promise<{ resume?: string; parcel?: string }> }) {
-  const { resume, parcel } = await searchParams;
+export default async function SubmitPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ resume?: string; parcel?: string; survey?: string }>;
+}) {
+  const { resume, parcel, survey } = await searchParams;
   const staff = await requirePageStaff("contributor", resume ? `/submit?resume=${resume}` : "/submit");
 
   let info: ResumeInfo | null = null;
@@ -54,7 +58,7 @@ export default async function SubmitPage({ searchParams }: { searchParams: Promi
       <SiteHeader staff={staff} />
       <main className="wrap">
         <h1>{info ? "Add a better photo" : "Submit a blighted property"}</h1>
-        <SubmitFlow resume={info} initialParcel={initial} />
+        <SubmitFlow resume={info} initialParcel={initial} surveyId={survey && /^[0-9a-f-]{36}$/.test(survey) ? survey : null} />
       </main>
     </div>
   );
