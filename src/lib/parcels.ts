@@ -1,5 +1,6 @@
 import "server-only";
 import { query } from "./db";
+import { publicPhotos } from "./submissions";
 
 export const STATUS_LABELS: Record<string, string> = {
   unreported: "Not reported",
@@ -124,7 +125,8 @@ export async function getParcel(county: string, parcelId: string) {
      ORDER BY e.effective_date DESC, e.recorded_at DESC, e.id DESC`,
     [county, parcelId],
   );
-  return { ...rows[0], history };
+  const photos = await publicPhotos(county, parcelId);
+  return { ...rows[0], history, photos };
 }
 
 export async function getBoundaryGeoJson(kind: string) {
@@ -136,4 +138,45 @@ export async function getBoundaryGeoJson(kind: string) {
     [kind],
   );
   return rows[0].fc;
+}
+
+export interface ParcelHit {
+  parcel_id: string;
+  situs_address: string | null;
+  owner_name: string | null;
+  status: string;
+  distance_m?: number;
+}
+
+/** Address or parcel-id search, Jackson parcels only. "522 burns" matches 522 BURNS ST. */
+export async function searchParcels(q: string): Promise<ParcelHit[]> {
+  const s = q.trim().toUpperCase().replace(/[.,]/g, " ").replace(/\s+/g, " ");
+  const m = s.match(/^(\d+)\s+(.+)$/);
+  const looksLikeId = /^\d+(-[\dA-Z]+)+$/.test(s) || /^\d+-?$/.test(s);
+  return query<ParcelHit>(
+    `SELECT p.parcel_id, p.situs_address, p.owner_name,
+            ${PUBLIC_STATUS} AS status
+     FROM app.parcels p
+     WHERE p.in_city AND (
+       ($1::text IS NOT NULL AND p.parcel_id LIKE $1 || '%')
+       OR ($2::int IS NOT NULL AND p.situs_number = $2 AND p.street_name LIKE '%' || $3 || '%')
+       OR ($2::int IS NULL AND $1::text IS NULL AND p.situs_address LIKE '%' || $4 || '%')
+     )
+     ORDER BY (p.situs_address LIKE $4 || '%') DESC, p.situs_address
+     LIMIT 12`,
+    [looksLikeId ? s : null, m ? Number(m[1]) : null, m ? m[2] : null, s],
+  );
+}
+
+/** Closest Jackson parcels to a point ("near me"). */
+export async function nearestParcels(lat: number, lon: number): Promise<ParcelHit[]> {
+  return query<ParcelHit>(
+    `SELECT p.parcel_id, p.situs_address, p.owner_name, ${PUBLIC_STATUS} AS status,
+            round(ST_Distance(p.pt::geography, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography))::int AS distance_m
+     FROM app.parcels p
+     WHERE p.in_city AND p.pt IS NOT NULL
+     ORDER BY p.pt <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)
+     LIMIT 10`,
+    [lat, lon],
+  );
 }

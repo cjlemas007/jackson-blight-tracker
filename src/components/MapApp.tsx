@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as maplibregl from "maplibre-gl";
+import { maplibregl } from "./maplibre";
 import type { ExpressionSpecification, FilterSpecification, LngLatBoundsLike, MapLayerMouseEvent } from "maplibre-gl";
 import { BASEMAP_STYLE, MAP_CENTER } from "@/config";
 import type { FilterOptions } from "@/lib/parcels";
@@ -25,8 +25,9 @@ const STATUSES = [
 
 const DELINQUENT_HEX = "#e07a1f";
 
-// Worker copied into /public by scripts/copy-maplibre-worker.mjs (predev/prebuild).
-maplibregl.setWorkerUrl("/maplibre-gl-worker.mjs");
+// Captured when this module first loads, before hydration or a dev double-mount can rewrite the URL.
+const INITIAL_HASH = typeof window === "undefined" ? "" : window.location.hash;
+
 const MIN_PARCEL_ZOOM = 14;
 
 function fillColor(colorBy: ColorBy): ExpressionSpecification {
@@ -74,7 +75,15 @@ function bboxOf(geom: GeoJSON.Geometry): LngLatBoundsLike {
   return [[minX, minY], [maxX, maxY]];
 }
 
-export default function MapApp({ siteName, options }: { siteName: string; options: FilterOptions }) {
+export default function MapApp({
+  siteName,
+  options,
+  staff,
+}: {
+  siteName: string;
+  options: FilterOptions;
+  staff: { name: string; role: string } | null;
+}) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const boundaryCache = useRef<Record<string, GeoJSON.FeatureCollection>>({});
@@ -103,7 +112,7 @@ export default function MapApp({ siteName, options }: { siteName: string; option
     if (!container.current || mapRef.current) return;
     // Read a shared view (#zoom/lat/lon) ourselves: in dev, React's double-mount lets the
     // first map instance rewrite the hash to the defaults before the second one reads it.
-    const [hz, hlat, hlon] = window.location.hash.slice(1).split("/").map(Number);
+    const [hz, hlat, hlon] = INITIAL_HASH.slice(1).split("/").map(Number);
     const fromHash = [hz, hlat, hlon].every(Number.isFinite);
     const map = new maplibregl.Map({
       container: container.current,
@@ -230,6 +239,17 @@ export default function MapApp({ siteName, options }: { siteName: string; option
         <h1>{siteName}</h1>
         <span className="sub">Jackson, Mississippi</span>
         <span className="spacer" />
+        <nav>
+          {staff ? (
+            <>
+              <a href="/submit">Submit</a>
+              {staff.role === "admin" && <a href="/admin">Review queue</a>}
+              <a href="/my">{staff.name}</a>
+            </>
+          ) : (
+            <a href="/login">Staff sign in</a>
+          )}
+        </nav>
       </div>
       <div className="stage">
         <aside className={`sidebar${sidebarOpen ? " open" : ""}`} aria-label="Map filters">

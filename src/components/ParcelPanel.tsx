@@ -44,6 +44,7 @@ interface Parcel {
   status_since: string | null;
   owner_as_of: string | null;
   history: HistoryItem[];
+  photos: { id: string; taken_on: string; verified_on: string; kind: string }[];
 }
 
 const OWNER_TYPE: Record<string, string> = {
@@ -116,7 +117,23 @@ export default function ParcelPanel({ county, parcelId, onClose }: { county: str
 
             <div className="section">
               <h4>Photos</h4>
-              <div className="empty">No approved photos yet.</div>
+              {data.photos.length === 0 ? (
+                <div className="empty">No approved photos yet.</div>
+              ) : (
+                <div className="photo-strip">
+                  {data.photos.map((p) => (
+                    <a key={p.id} href={`/api/photos/${p.id}`} target="_blank" rel="noreferrer" title={`Taken ${p.taken_on}`}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={`/api/photos/${p.id}`} alt={`Photo taken ${p.taken_on}`} loading="lazy" />
+                    </a>
+                  ))}
+                </div>
+              )}
+              {data.photos.length > 0 && (
+                <div className="flag" style={{ marginTop: 6 }}>
+                  Newest first. Taken {data.photos[data.photos.length - 1].taken_on} to {data.photos[0].taken_on}.
+                </div>
+              )}
             </div>
 
             <div className="section">

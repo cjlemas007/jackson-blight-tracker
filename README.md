@@ -17,6 +17,18 @@ npm run db:migrate
 npm run sync                        # full pull: ~5–10 min (BigQuery + ArcGIS + Census geocoder)
 npm run dev                         # http://localhost:3000
 npm test                            # unit + database tests (uses the blight_test database)
+npm run staff -- dev-accounts       # local only: dev-admin@ / dev-contributor@example.test,
+                                    # password = DEV_STAFF_PASSWORD in .env.local
+```
+
+### Staff accounts
+
+Only coworkers submit; the public browses. Create the first admin from the command line, then
+manage everyone else at `/admin/staff`:
+
+```bash
+npm run staff -- add you@newsroom.com "Your Name" admin   # prints a temporary password once
+npm run staff -- reset someone@newsroom.com               # admin-side reset, no email involved
 ```
 
 Google access uses Application Default Credentials: `gcloud auth application-default login`.
