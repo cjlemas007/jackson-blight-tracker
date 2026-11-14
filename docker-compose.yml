@@ -1,0 +1,15 @@
+services:
+  db:
+    # postgis/postgis has no arm64 build; imresamu/postgis is the multi-arch build of the same image.
+    image: imresamu/postgis:17-3.5
+    environment:
+      POSTGRES_USER: blight
+      POSTGRES_PASSWORD: blight
+      POSTGRES_DB: blight
+    ports:
+      - "54329:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+volumes:
+  pgdata:
