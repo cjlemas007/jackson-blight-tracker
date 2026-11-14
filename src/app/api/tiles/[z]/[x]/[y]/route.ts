@@ -1,4 +1,4 @@
-import { getMapTile } from "@/lib/parcels";
+import { getMapTile, getStatusPointsTile } from "@/lib/parcels";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ z: stri
   if (![zi, xi, yi].every(Number.isInteger) || zi < 0 || zi > 22 || xi < 0 || yi < 0 || xi >= 2 ** zi || yi >= 2 ** zi) {
     return new Response("bad tile", { status: 400 });
   }
-  const body = zi < MIN_ZOOM ? Buffer.alloc(0) : await getMapTile(zi, xi, yi);
+  const body = zi < MIN_ZOOM ? await getStatusPointsTile(zi, xi, yi) : await getMapTile(zi, xi, yi);
   return new Response(new Uint8Array(body), {
     headers: {
       "Content-Type": "application/vnd.mapbox-vector-tile",

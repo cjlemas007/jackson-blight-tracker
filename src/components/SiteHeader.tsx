@@ -10,6 +10,9 @@ export default function SiteHeader({ staff }: { staff: Staff | null }) {
       <span className="spacer" />
       <nav>
         <Link href="/">Map</Link>
+        <Link href="/owners">Owners</Link>
+        <Link href="/streets">Streets</Link>
+        <Link href="/areas">Areas</Link>
         {staff && <Link href="/submit">Submit</Link>}
         {staff && <Link href="/my">My submissions</Link>}
         {staff?.role === "admin" && <Link href="/admin">Review queue</Link>}

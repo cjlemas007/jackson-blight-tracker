@@ -37,6 +37,22 @@ export const OWNER_TYPE_LABELS: Record<string, string> = {
  */
 const PUBLIC_STATUS = "(CASE WHEN p.status = 'submitted' THEN 'unreported' ELSE p.status::text END)";
 
+/** Below parcel zoom: just the parcels with a public status, as points (a few hundred city-wide). */
+export async function getStatusPointsTile(z: number, x: number, y: number): Promise<Buffer> {
+  const rows = await query<{ mvt: Buffer }>(
+    `WITH b AS (SELECT ST_TileEnvelope($1, $2, $3) AS env, ST_Transform(ST_TileEnvelope($1, $2, $3), 4326) AS env4326),
+     pts AS (
+       SELECT ST_AsMVTGeom(ST_Transform(p.pt, 3857), b.env, 1024, 16, true) AS geom,
+              p.parcel_id, ${PUBLIC_STATUS} AS status, p.owner_type, p.ward, p.neighborhood, p.delinquent
+       FROM b JOIN app.parcels p ON p.pt && b.env4326
+       WHERE p.in_city AND p.status IN ('verified_blighted', 'city_action', 'resolved')
+     )
+     SELECT COALESCE((SELECT ST_AsMVT(pts.*, 'status_points', 1024, 'geom') FROM pts), ''::bytea) AS mvt`,
+    [z, x, y],
+  );
+  return rows[0]?.mvt ?? Buffer.alloc(0);
+}
+
 export async function getMapTile(z: number, x: number, y: number): Promise<Buffer> {
   // Coarser grid at low zoom: snapping to 1024 drops near-duplicate vertices and cuts
   // z13 tiles roughly in half; full 4096 detail from z15.

@@ -18,7 +18,8 @@
     "staff": "tsx scripts/staff.ts",
     "photos:process": "tsx scripts/process-photos.ts",
     "models": "node scripts/fetch-models.mjs",
-    "detect": "tsx scripts/detect-folder.ts"
+    "detect": "tsx scripts/detect-folder.ts",
+    "dev:demo": "tsx scripts/dev-demo.ts"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^9.6.1",

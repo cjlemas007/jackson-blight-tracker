@@ -79,7 +79,7 @@ export default function ParcelPickerMap({
 
   return (
     <div className="picker-map">
-      <div ref={el} />
+      <div ref={el} className="map-canvas" />
     </div>
   );
 }

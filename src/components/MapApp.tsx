@@ -6,6 +6,8 @@ import type { ExpressionSpecification, FilterSpecification, LngLatBoundsLike, Ma
 import { BASEMAP_STYLE, MAP_CENTER } from "@/config";
 import type { FilterOptions } from "@/lib/parcels";
 import ParcelPanel from "./ParcelPanel";
+import HeadlineCounters from "./HeadlineCounters";
+import type { Headline } from "@/lib/rankings";
 
 type ColorBy = "owner" | "status";
 
@@ -27,6 +29,8 @@ const DELINQUENT_HEX = "#e07a1f";
 
 // Captured when this module first loads, before hydration or a dev double-mount can rewrite the URL.
 const INITIAL_HASH = typeof window === "undefined" ? "" : window.location.hash;
+// ?parcel=<id> (links from owner pages) opens that parcel.
+const INITIAL_PARCEL = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("parcel");
 
 const MIN_PARCEL_ZOOM = 14;
 
@@ -79,9 +83,11 @@ export default function MapApp({
   siteName,
   options,
   staff,
+  headline,
 }: {
   siteName: string;
   options: FilterOptions;
+  headline: Headline;
   staff: { name: string; role: string } | null;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -138,7 +144,7 @@ export default function MapApp({
       map.addSource("parcels", {
         type: "vector",
         tiles: [`${window.location.origin}/api/tiles/{z}/{x}/{y}`],
-        minzoom: MIN_PARCEL_ZOOM,
+        minzoom: 9,
         maxzoom: 16, // overzoom beyond 16; tiles at 16 carry full detail
         attribution: "Parcels: City of Jackson / Hinds County · Land roll: Hinds County",
       });
@@ -156,6 +162,16 @@ export default function MapApp({
         id: "parcel-points", type: "circle", source: "parcels", "source-layer": "parcel_points",
         paint: { "circle-color": fillColor("owner"), "circle-radius": 4, "circle-stroke-color": "#fff", "circle-stroke-width": 1 },
       });
+      // Below parcel zoom: verified / city action / resolved parcels as dots, always colored by status.
+      map.addLayer({
+        id: "status-points", type: "circle", source: "parcels", "source-layer": "status_points", maxzoom: MIN_PARCEL_ZOOM,
+        paint: {
+          "circle-color": fillColor("status"),
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 2.5, 13, 5],
+          "circle-stroke-color": "#fff",
+          "circle-stroke-width": 0.8,
+        },
+      });
       map.addLayer({
         id: "selected-line", type: "line", source: "parcels", "source-layer": "parcels",
         filter: ["==", ["get", "parcel_id"], ""],
@@ -168,7 +184,7 @@ export default function MapApp({
         paint: { "text-color": "#1d2433", "text-halo-color": "#fff", "text-halo-width": 1.5 },
       });
 
-      for (const layer of ["parcels-fill", "parcel-points"]) {
+      for (const layer of ["parcels-fill", "parcel-points", "status-points"]) {
         map.on("click", layer, (e: MapLayerMouseEvent) => {
           const id = e.features?.[0]?.properties?.parcel_id as string | undefined;
           if (id) setSelected(id);
@@ -178,6 +194,11 @@ export default function MapApp({
       }
       setZoom(map.getZoom());
       setReady(true);
+      if (INITIAL_PARCEL) {
+        const p = await fetch(`/api/parcels/Hinds/${encodeURIComponent(INITIAL_PARCEL)}`).then((r) => (r.ok ? r.json() : null));
+        if (p?.lon != null) map.jumpTo({ center: [p.lon, p.lat], zoom: 17 });
+        if (p) setSelected(INITIAL_PARCEL);
+      }
     });
     return () => {
       map.remove();
@@ -193,6 +214,7 @@ export default function MapApp({
     map.setFilter("parcels-fill", f);
     map.setFilter("parcels-line", f);
     map.setFilter("parcel-points", f);
+    map.setFilter("status-points", f);
     map.setPaintProperty("parcels-fill", "fill-color", fillColor(colorBy));
     map.setPaintProperty("parcel-points", "circle-color", fillColor(colorBy));
   }, [filters, colorBy, ready]);
@@ -240,6 +262,9 @@ export default function MapApp({
         <span className="sub">Jackson, Mississippi</span>
         <span className="spacer" />
         <nav>
+          <a href="/owners">Owners</a>
+          <a href="/streets">Streets</a>
+          <a href="/areas">Areas</a>
           {staff ? (
             <>
               <a href="/submit">Submit</a>
@@ -253,6 +278,7 @@ export default function MapApp({
       </div>
       <div className="stage">
         <aside className={`sidebar${sidebarOpen ? " open" : ""}`} aria-label="Map filters">
+          <HeadlineCounters h={headline} compact />
           <div className="totals">
             <strong>{t.parcels.toLocaleString()}</strong> parcels inside Jackson city limits ·{" "}
             <strong>{t.state_forfeited.toLocaleString()}</strong> held by the State as tax-forfeited ·{" "}
@@ -363,8 +389,8 @@ export default function MapApp({
         </aside>
 
         <div className="map">
-          <div ref={container} />
-          {ready && zoom < MIN_PARCEL_ZOOM && <div className="zoomhint">Zoom in to see parcels</div>}
+          <div ref={container} className="map-canvas" />
+          {ready && zoom < MIN_PARCEL_ZOOM && <div className="zoomhint">Dots show reported parcels. Zoom in to see every parcel</div>}
           {selected && <ParcelPanel county="Hinds" parcelId={selected} onClose={() => setSelected(null)} />}
         </div>
       </div>
