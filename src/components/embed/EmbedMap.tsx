@@ -4,15 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import type { ExpressionSpecification, FilterSpecification, MapLayerMouseEvent } from "maplibre-gl";
 import { maplibregl } from "../maplibre";
 import { BASEMAP_STYLE, MAP_CENTER, SITE_NAME } from "@/config";
+import { INK, MUTED, STATUS_COLORS, STATUS_LABELS } from "@/lib/palette";
 
-const COLORS: Record<string, string> = {
-  verified_blighted: "#c62828", city_action: "#f2a900", city_flagged: "#9b7bd4", resolved: "#2e7d32", unreported: "#d4cfc4",
-};
-const LABEL: Record<string, string> = {
-  verified_blighted: "Verified blighted", city_action: "City action pending", city_flagged: "City-flagged (not verified)",
-  resolved: "Resolved", unreported: "Not reported",
-};
-const color = ["match", ["get", "status"], ...Object.entries(COLORS).flat(), "#d4cfc4"] as unknown as ExpressionSpecification;
+const COLORS: Record<string, string> = STATUS_COLORS;
+const LABEL: Record<string, string> = STATUS_LABELS;
+const color = ["match", ["get", "status"], ...Object.entries(COLORS).flat(), STATUS_COLORS.unreported] as unknown as ExpressionSpecification;
 
 /** Map for embedding in stories. Shows reported parcels by status; optional ward, status and parcel focus. */
 export default function EmbedMap({
@@ -39,7 +35,7 @@ export default function EmbedMap({
       m.addLayer({ id: "fill", type: "fill", source: "parcels", "source-layer": "parcels", minzoom: 14, filter,
         paint: { "fill-color": color, "fill-opacity": 0.7 } });
       m.addLayer({ id: "focus", type: "line", source: "parcels", "source-layer": "parcels", minzoom: 14,
-        filter: ["==", ["get", "parcel_id"], parcel ?? ""], paint: { "line-color": "#1d2433", "line-width": 3 } });
+        filter: ["==", ["get", "parcel_id"], parcel ?? ""], paint: { "line-color": INK, "line-width": 3 } });
       for (const layer of ["dots", "fill"]) {
         m.on("click", layer, async (e: MapLayerMouseEvent) => {
           const id = e.features?.[0]?.properties?.parcel_id as string | undefined;
@@ -73,19 +69,19 @@ export default function EmbedMap({
   return (
     <div style={{ position: "relative", height: "100%", minHeight: 300 }}>
       <div ref={el} style={{ position: "absolute", inset: 0 }} />
-      <div style={{ position: "absolute", left: 8, bottom: 8, background: "rgba(255,255,255,0.94)", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ position: "absolute", left: 8, bottom: 8, background: "rgba(255,255,255,0.94)", borderRadius: 8, padding: "6px 8px", fontSize: 12, fontFamily: "var(--font-sans-stack)" }}>
         {statuses.map((s) => (
           <div key={s} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 10, height: 10, borderRadius: 5, background: COLORS[s], display: "inline-block" }} />{LABEL[s]}
           </div>
         ))}
-        <div style={{ color: "#5f6675", marginTop: 2 }}><a href="/" target="_blank" rel="noreferrer" style={{ color: "#5f6675" }}>{SITE_NAME}</a></div>
+        <div style={{ color: MUTED, marginTop: 2 }}><a href="/" target="_blank" rel="noreferrer" style={{ color: MUTED }}>{SITE_NAME}</a></div>
       </div>
       {popup && (
-        <div style={{ position: "absolute", left: 8, top: 8, right: 56, background: "#fff", borderRadius: 8, padding: "8px 10px", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", fontFamily: "system-ui, sans-serif", fontSize: 13 }}>
+        <div style={{ position: "absolute", left: 8, top: 8, right: 56, background: "#fff", borderRadius: 8, padding: "8px 10px", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", fontFamily: "var(--font-sans-stack)", fontSize: 13 }}>
           <strong>{popup.address}</strong> · {LABEL[popup.status] ?? popup.status}
           <div><a href={`/?parcel=${encodeURIComponent(popup.id)}`} target="_blank" rel="noreferrer">Photos, owner and history</a>{" "}
-            <button onClick={() => setPopup(null)} style={{ border: 0, background: "none", cursor: "pointer", color: "#5f6675" }}>close</button></div>
+            <button onClick={() => setPopup(null)} style={{ border: 0, background: "none", cursor: "pointer", color: MUTED }}>close</button></div>
         </div>
       )}
     </div>

@@ -1,12 +1,13 @@
 /** Dependency-free SVG charts for embeds (server-rendered). */
 
-const INK = "#1d2433";
-const MUTED = "#5f6675";
+import { INK, MUTED, RULE, STATUS_COLORS } from "@/lib/palette";
 
+/**
+ * Horizontal bars as HTML (not SVG), so labels stay real-size text on phones and in narrow embeds.
+ */
 export function HBarChart({
   rows,
-  width = 640,
-  color = "#c62828",
+  color = STATUS_COLORS.verified_blighted,
   valueLabel = (v: number) => v.toLocaleString(),
   note,
 }: {
@@ -16,28 +17,22 @@ export function HBarChart({
   valueLabel?: (v: number) => string;
   note?: (i: number) => string | undefined;
 }) {
-  const barH = 22;
-  const gap = 10;
-  const labelW = 170;
-  const valueW = 170;
   const max = Math.max(1, ...rows.map((r) => r.value));
-  const h = Math.max(1, rows.length * (barH + gap));
   return (
-    <svg viewBox={`0 0 ${width} ${h}`} width="100%" role="img" aria-label="Bar chart" style={{ display: "block", fontFamily: "system-ui, sans-serif" }}>
-      {rows.map((r, i) => {
-        const y = i * (barH + gap);
-        const w = ((width - labelW - valueW) * r.value) / max;
-        const v = valueLabel(r.value);
-        return (
-          <g key={`${r.label}-${i}`}>
-            <text x={labelW - 8} y={y + barH * 0.7} textAnchor="end" fontSize="13" fill={INK}>{r.label.length > 24 ? `${r.label.slice(0, 23)}…` : r.label}</text>
-            <rect x={labelW} y={y} width={Math.max(r.value > 0 ? 2 : 0, w)} height={barH} rx="3" fill={color} />
-            <text x={labelW + w + 6} y={y + barH * 0.7} fontSize="13" fill={INK} fontWeight="600">{v}</text>
-            {note?.(i) && <text x={labelW + w + 12 + v.length * 8} y={y + barH * 0.7} fontSize="11" fill={MUTED}>{note(i)}</text>}
-          </g>
-        );
-      })}
-    </svg>
+    <div className="hbar" role="list">
+      {rows.map((r, i) => (
+        <div className="hbar-row" role="listitem" key={`${r.label}-${i}`}>
+          <span className="hbar-label" title={r.label}>{r.label}</span>
+          <span className="hbar-track">
+            <span className="hbar-fill" style={{ width: `${(100 * r.value) / max}%`, background: color, minWidth: r.value > 0 ? 2 : 0 }} />
+          </span>
+          <span className="hbar-val">
+            {valueLabel(r.value)}
+            {note?.(i) && <small>{note(i)}</small>}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -60,7 +55,7 @@ export function WeeklyColumns({
   const bw = Math.max(2, (step - 6) / series.length);
   const ticks = [...new Set([0, Math.ceil(max / 2), max])];
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Weekly chart" style={{ display: "block", fontFamily: "system-ui, sans-serif" }}>
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Weekly chart" style={{ display: "block", fontFamily: "var(--font-sans-stack)" }}>
       {series.map((s, i) => (
         <g key={s.key} transform={`translate(${padL + i * 170}, 12)`}>
           <rect width="10" height="10" y="-9" fill={s.color} rx="2" />
@@ -71,7 +66,7 @@ export function WeeklyColumns({
         const y = padT + plotH - (plotH * t) / max;
         return (
           <g key={t}>
-            <line x1={padL} x2={width - 8} y1={y} y2={y} stroke="#e2ded5" />
+            <line x1={padL} x2={width - 8} y1={y} y2={y} stroke={RULE} />
             <text x={padL - 6} y={y + 4} textAnchor="end" fontSize="11" fill={MUTED}>{t}</text>
           </g>
         );
@@ -95,5 +90,29 @@ export function WeeklyColumns({
         </g>
       ))}
     </svg>
+  );
+}
+
+/**
+ * Single-series weekly columns as HTML, newest week highlighted (it's the partial, current week).
+ * Colors come from CSS tokens, so it follows the light/dark theme.
+ */
+export function WeeklyBars({ points, label }: { points: { week: string; value: number }[]; label: string }) {
+  const max = Math.max(1, ...points.map((p) => p.value));
+  const fmt = (w: string) => new Date(`${w}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return (
+    <figure className="wcols" style={{ margin: 0 }} aria-label={label}>
+      <div className="wcols-plot" role="list">
+        {points.map((p, i) => (
+          <div key={p.week} role="listitem" className={`wcols-col${i === points.length - 1 ? " last" : ""}`} title={`Week of ${fmt(p.week)}: ${p.value}`}>
+            <span className="wcols-val">{p.value}</span>
+            <span className="wcols-bar" style={{ height: `${(100 * p.value) / max * 0.82}%`, minHeight: p.value > 0 ? 2 : 0 }} />
+          </div>
+        ))}
+      </div>
+      <div className="wcols-axis" aria-hidden>
+        {points.map((p, i) => <span key={p.week}>{i === points.length - 1 ? "This wk" : fmt(p.week)}</span>)}
+      </div>
+    </figure>
   );
 }

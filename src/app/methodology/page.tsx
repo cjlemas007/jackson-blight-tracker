@@ -1,4 +1,5 @@
 import SiteHeader from "@/components/SiteHeader";
+import PageHead from "@/components/PageHead";
 import { currentStaff } from "@/lib/auth/session";
 import { APPROVAL_STANDARD, CONDITIONS } from "@/lib/approval";
 import { FULLY_SURVEYED_SHARE, STREET_MIN_PARCELS, SURVEY_VALID_DAYS, SITE_NAME } from "@/config";
@@ -22,14 +23,14 @@ export default async function Methodology() {
     <div className="page">
       <SiteHeader staff={staff} />
       <main className="wrap" style={{ lineHeight: 1.55 }}>
-        <h1>How this works</h1>
-        <p>
+        <PageHead kicker="Methodology" title="How this works" />
+        <p className="dek">
           {SITE_NAME} tracks blighted property inside Jackson city limits: which parcels are blighted, who owns them, and what the
           City is doing about them. Every figure on the site is calculated from a dated history kept for each parcel. No number
           is typed in by hand.
         </p>
 
-        <section className="card">
+        <section className="article-section">
           <h2>Where the property data comes from</h2>
           <ul>
             <li><strong>Owners, values and taxes</strong> come from the Hinds County land roll and tax records, updated nightly. Each parcel shows the date of the record its owner comes from.</li>
@@ -39,7 +40,7 @@ export default async function Methodology() {
           </ul>
         </section>
 
-        <section className="card">
+        <section className="article-section">
           <h2>How a parcel becomes &ldquo;verified blighted&rdquo;</h2>
           <ol>
             <li>A member of the newsroom staff photographs the property from the street, the sidewalk, or their own property, and marks which conditions they see: {CONDITIONS.map((c) => c.label.toLowerCase()).join("; ")}.</li>
@@ -55,7 +56,7 @@ export default async function Methodology() {
           </p>
         </section>
 
-        <section className="card">
+        <section className="article-section">
           <h2>What the numbers mean</h2>
           <ul>
             <li><strong>Blighted</strong> means a parcel the newsroom has verified whose current status is &ldquo;verified blighted&rdquo; or &ldquo;City action pending.&rdquo; Repaired, cleared or demolished parcels no longer count.</li>
@@ -67,7 +68,7 @@ export default async function Methodology() {
           </ul>
         </section>
 
-        <section className="card">
+        <section className="article-section">
           <h2>Coverage: why many figures say &ldquo;reported so far&rdquo;</h2>
           <p>
             A neighborhood where several people have sent photos would otherwise look worse than one nobody has visited. So newsroom
@@ -82,7 +83,7 @@ export default async function Methodology() {
           </ul>
         </section>
 
-        <section className="card">
+        <section className="article-section">
           <h2>City actions and sources</h2>
           <p style={{ marginBottom: 0 }}>
             Citations, hearings, council adjudications, demolition and cleanup orders, liens and demolitions come from City records
@@ -93,7 +94,7 @@ export default async function Methodology() {
           </p>
         </section>
 
-        <section className="card">
+        <section className="article-section">
           <h2>Requesting a correction</h2>
           <p style={{ marginBottom: 0 }}>
             Every parcel and owner page has a <strong>&ldquo;Request a correction&rdquo;</strong> link. Tell us what&apos;s wrong and how you

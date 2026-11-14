@@ -1,4 +1,5 @@
 import SiteHeader from "@/components/SiteHeader";
+import PageHead from "@/components/PageHead";
 import { currentStaff } from "@/lib/auth/session";
 import { streetRankings } from "@/lib/rankings";
 import { blightRateLabel, coverageLabel, fmtPct } from "@/lib/coverage";
@@ -20,7 +21,11 @@ export default async function StreetsPage({
     <div className="page">
       <SiteHeader staff={staff} />
       <main className="wrap wide">
-        <h1>Streets with the most blight</h1>
+        <PageHead
+          kicker="Streets"
+          title="The streets with the most blight"
+          dek="Verified blighted parcels as a share of every parcel on the street. Short streets are left out so they can’t top the list."
+        />
         <form className="filters" method="get">
           <label>Sort by{" "}
             <select name="sort" defaultValue={sort}>
@@ -40,10 +45,9 @@ export default async function StreetsPage({
           <button className="btn secondary">Apply</button>
           <a className="small" href={`/api/export/streets.csv?sort=${sort}&min=${min}${surveyedOnly ? "&coverage=surveyed" : ""}`}>Download CSV</a>
         </form>
-        <p className="muted small" style={{ margin: 0 }}>
-          Verified blighted parcels divided by all parcels on the street (Jackson only). Streets with fewer than {min} parcels
-          are left out so a three-lot street can&apos;t top the list. Unless a street has been fully surveyed, its share is a
-          floor: &ldquo;reported so far.&rdquo;
+        <p className="note">
+          Streets with fewer than {min} parcels are left out. Unless a street has been fully surveyed, its share is a floor:
+          &ldquo;reported so far.&rdquo;
         </p>
         {rows.length === 0 ? (
           <div className="card muted">{surveyedOnly ? "No fully surveyed streets have verified blight yet." : "No streets have verified blight yet."}</div>
@@ -51,7 +55,7 @@ export default async function StreetsPage({
           <div style={{ overflowX: "auto" }}>
             <table className="table">
               <thead>
-                <tr><th>#</th><th>Street</th><th className="num">Blighted</th><th className="num">Parcels</th><th>Share</th><th>Coverage</th></tr>
+                <tr><th>#</th><th>Street</th><th className="num">Blighted</th><th className="num hide-sm">Parcels</th><th>Share</th><th className="hide-sm">Coverage</th></tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
@@ -62,12 +66,12 @@ export default async function StreetsPage({
                       <strong>{r.blighted}</strong>
                       {r.city_flagged > 0 && <div className="muted small">+{r.city_flagged} City-flagged</div>}
                     </td>
-                    <td className="num">{r.total_parcels}</td>
+                    <td className="num hide-sm">{r.total_parcels}</td>
                     <td>
                       <div className="bar" aria-hidden><span style={{ width: fmtPct(r.share_blighted) }} /></div>
                       <span className={r.fully_surveyed ? "" : "floor"}>{blightRateLabel(r.blighted, r.total_parcels, r.surveyed)}</span>
                     </td>
-                    <td className="small muted">{coverageLabel(r.surveyed, r.total_parcels)}</td>
+                    <td className="small muted hide-sm">{coverageLabel(r.surveyed, r.total_parcels)}</td>
                   </tr>
                 ))}
               </tbody>

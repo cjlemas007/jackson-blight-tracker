@@ -1,5 +1,6 @@
 import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
+import PageHead from "@/components/PageHead";
 import HeadlineCounters from "@/components/HeadlineCounters";
 import AreaMapClient from "@/components/AreaMapClient";
 import { currentStaff } from "@/lib/auth/session";
@@ -25,7 +26,11 @@ export default async function AreasPage({ searchParams }: { searchParams: Promis
     <div className="page">
       <SiteHeader staff={staff} />
       <main className="wrap wide">
-        <h1>Blight by area</h1>
+        <PageHead
+          kicker="Wards & neighborhoods"
+          title="Where blight is concentrated"
+          dek="Verified blighted parcels by council ward, neighborhood and census tract, and how each has changed over the last 30 and 90 days."
+        />
         <HeadlineCounters h={h} />
         <div className="row" style={{ justifyContent: "space-between" }}>
           <nav className="tabs">
@@ -51,8 +56,8 @@ export default async function AreasPage({ searchParams }: { searchParams: Promis
           <table className="table">
             <thead>
               <tr>
-                <th>{LABEL[kind].replace(/s$/, "")}</th><th className="num">Blighted</th><th className="num">Parcels</th><th>Share</th>
-                <th className="num">30 days</th><th className="num">90 days</th><th>Coverage</th>
+                <th>{LABEL[kind].replace(/s$/, "")}</th><th className="num">Blighted</th><th className="num hide-sm">Parcels</th><th>Share</th>
+                <th className="num">30 days</th><th className="num hide-sm">90 days</th><th className="hide-sm">Coverage</th>
               </tr>
             </thead>
             <tbody>
@@ -63,11 +68,11 @@ export default async function AreasPage({ searchParams }: { searchParams: Promis
                     <strong>{r.blighted}</strong>
                     {r.city_flagged > 0 && <div className="muted small">+{r.city_flagged} City-flagged</div>}
                   </td>
-                  <td className="num">{r.total_parcels.toLocaleString()}</td>
+                  <td className="num hide-sm">{r.total_parcels.toLocaleString()}</td>
                   <td className={r.fully_surveyed ? "" : "floor"}>{blightRateLabel(r.blighted, r.total_parcels, r.surveyed)}</td>
                   <td className="num"><Change now={r.blighted} then={r.blighted_30d_ago} /></td>
-                  <td className="num"><Change now={r.blighted} then={r.blighted_90d_ago} /></td>
-                  <td className="small muted">{coverageLabel(r.surveyed, r.total_parcels)}</td>
+                  <td className="num hide-sm"><Change now={r.blighted} then={r.blighted_90d_ago} /></td>
+                  <td className="small muted hide-sm">{coverageLabel(r.surveyed, r.total_parcels)}</td>
                 </tr>
               ))}
             </tbody>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
+import PageHead from "@/components/PageHead";
 import { currentStaff } from "@/lib/auth/session";
 import { ownerRankings, type OwnerTab } from "@/lib/rankings";
 import { coverageLabel, fmtPct } from "@/lib/coverage";
@@ -22,15 +23,19 @@ export default async function OwnersPage({ searchParams }: { searchParams: Promi
     <div className="page">
       <SiteHeader staff={staff} />
       <main className="wrap wide">
-        <h1>Who owns the most blighted property</h1>
+        <PageHead
+          kicker="Ownership"
+          title="Who owns Jackson’s blighted property"
+          dek="Owners ranked by parcels our staff has verified as blighted, counting every LLC and name spelling we can tie to the same owner."
+        />
         <nav className="tabs">
           {TABS.map((x) => (
             <Link key={x.key} href={`/owners?tab=${x.key}`} aria-current={x.key === tab ? "page" : undefined}>{x.label}</Link>
           ))}
         </nav>
-        <p className="muted" style={{ margin: 0 }}>
-          {TABS.find((x) => x.key === tab)!.blurb} Ranked by verified blighted parcels in Jackson. Homestead-exempt and
-          heirs/estate parcels are left out of these counts. They still count in street and area totals.
+        <p className="note">
+          {TABS.find((x) => x.key === tab)!.blurb} Homestead-exempt and heirs/estate parcels are left out of these counts;
+          they still count in street and area totals.
         </p>
         {rows.length === 0 ? (
           <div className="card muted">No verified blighted parcels for this group yet.</div>
@@ -39,8 +44,8 @@ export default async function OwnersPage({ searchParams }: { searchParams: Promi
             <table className="table">
               <thead>
                 <tr>
-                  <th>#</th><th>Owner</th><th className="num">Blighted</th><th className="num">Parcels in Jackson</th>
-                  <th className="num">Share blighted</th><th className="num">Unpaid taxes</th><th>Coverage</th>
+                  <th>#</th><th>Owner</th><th className="num">Blighted</th><th className="num hide-sm">Parcels in Jackson</th>
+                  <th className="num">Share blighted</th><th className="num hide-sm">Unpaid taxes</th><th className="hide-sm">Coverage</th>
                 </tr>
               </thead>
               <tbody>
@@ -52,17 +57,17 @@ export default async function OwnersPage({ searchParams }: { searchParams: Promi
                       {r.other_names > 0 && (
                         <div className="muted small">
                           + {r.other_names} other owner name{r.other_names > 1 ? "s" : ""}
-                          {!r.curated && r.portfolio_id.startsWith("MK:") && " · grouped automatically by shared mailing address, not yet verified"}
+                          {!r.curated && r.portfolio_id.startsWith("MK:") && <span className="hide-sm"> · grouped automatically by shared mailing address, not yet verified</span>}
                         </div>
                       )}
                       {r.blighted_excluded > 0 && <div className="muted small">{r.blighted_excluded} more blighted, excluded (homestead/estate)</div>}
                       {r.city_flagged > 0 && <div className="muted small">plus {r.city_flagged} City-flagged, not yet verified</div>}
                     </td>
                     <td className="num"><strong>{r.blighted}</strong></td>
-                    <td className="num">{r.total_parcels.toLocaleString()}</td>
+                    <td className="num hide-sm">{r.total_parcels.toLocaleString()}</td>
                     <td className="num">{fmtPct(r.share_blighted)}</td>
-                    <td className="num">{r.taxes_owed > 0 ? usd(r.taxes_owed) : "—"}</td>
-                    <td className="small muted">{coverageLabel(r.surveyed, r.total_parcels)}</td>
+                    <td className="num hide-sm">{r.taxes_owed > 0 ? usd(r.taxes_owed) : "—"}</td>
+                    <td className="small muted hide-sm">{coverageLabel(r.surveyed, r.total_parcels)}</td>
                   </tr>
                 ))}
               </tbody>

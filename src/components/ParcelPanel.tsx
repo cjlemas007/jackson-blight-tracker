@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import CorrectionForm from "./CorrectionForm";
+import { STATUS_COLORS, themed } from "@/lib/palette";
+import { useTheme } from "@/lib/theme";
 
 interface HistoryItem {
   id: number;
@@ -84,6 +86,7 @@ const usd = (n: number | null | undefined) =>
   n === null || n === undefined ? "—" : n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
 export default function ParcelPanel({ county, parcelId, onClose }: { county: string; parcelId: string; onClose: () => void }) {
+  const theme = useTheme();
   const [data, setData] = useState<Parcel | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,6 +116,7 @@ export default function ParcelPanel({ county, parcelId, onClose }: { county: str
           <>
             <div>
               <span className="badge">
+                <span className="swatch" style={{ background: themed(STATUS_COLORS[data.status as keyof typeof STATUS_COLORS] ?? STATUS_COLORS.unreported, theme), borderRadius: "50%" }} />
                 {STATUS[data.status] ?? data.status}
                 {data.substatus && ` · ${SUB[data.substatus] ?? data.substatus}`}
               </span>

@@ -22,12 +22,12 @@ export default async function EmbedCounters({ searchParams }: { searchParams: Pr
   };
   return (
     <EmbedFrame title={sp.title?.slice(0, 120)}>
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(140px, 1fr))`, gap: 10 }}>
+      <div className="counters">
         {want.map((k) => (
-          <div key={k} style={{ border: "1px solid #e2ded5", borderRadius: 10, padding: "10px 12px" }}>
-            <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1.1 }}>{items[k].n}</div>
-            <div style={{ fontSize: 13, color: "#5f6675" }}>{items[k].l}</div>
-            {items[k].q && <div style={{ fontSize: 11, color: "#5f6675", fontStyle: "italic" }}>{items[k].q}</div>}
+          <div key={k} className="counter">
+            <div className="n">{items[k].n}</div>
+            <div className="l">{items[k].l}</div>
+            {items[k].q && <div className="q">{items[k].q}</div>}
           </div>
         ))}
       </div>

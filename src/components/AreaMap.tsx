@@ -2,10 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { MapLayerMouseEvent } from "maplibre-gl";
-import { maplibregl } from "./maplibre";
-import { BASEMAP_STYLE, MAP_CENTER } from "@/config";
+import { initialBasemap, maplibregl, useMapTheme } from "./maplibre";
+import { MAP_CENTER } from "@/config";
+import { INK, MAP_INK, RAMP, rampFor, type Theme } from "@/lib/palette";
+import type { ExpressionSpecification } from "maplibre-gl";
 
-const RAMP = ["#fbe9e7", "#f8bba8", "#ef8a6f", "#d9533b", "#a8231a"];
+/** Fill expression: 0 -> first shade; first nonzero class starts just above 0, then quantile breaks. */
+function rampExpr(ramp: string[], top: number, br: number[]): ExpressionSpecification | string {
+  return top > 0
+    ? (["step", ["get", "share_blighted"], ramp[0], 1e-9, ramp[1], ...br.flatMap((b, i) => (ramp[i + 2] ? [b, ramp[i + 2]] : []))] as unknown as ExpressionSpecification)
+    : ramp[0];
+}
+
 
 /**
  * Choropleth of blighted share by area. Quantile breaks over areas with any reports, so each
@@ -24,10 +32,15 @@ export default function AreaMap({ kind }: { kind: string }) {
   const [max, setMax] = useState(0);
   const [breaks, setBreaks] = useState<number[]>([]);
   const [hover, setHover] = useState<Record<string, unknown> | null>(null);
+  const [ready, setReady] = useState(false);
+  const theme = useMapTheme(map, ready, ["areas"], (t: Theme) => ({
+    "areas-fill": { "fill-color": rampExpr(rampFor(t), max, breaks) },
+    "areas-line": { "line-color": MAP_INK[t].ink },
+  }));
 
   useEffect(() => {
     if (!el.current) return;
-    const m = new maplibregl.Map({ container: el.current, style: BASEMAP_STYLE, center: MAP_CENTER, zoom: 10.8, attributionControl: { compact: true } });
+    const m = new maplibregl.Map({ container: el.current, style: initialBasemap(), center: MAP_CENTER, zoom: 10.8, attributionControl: { compact: true } });
     map.current = m;
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     m.on("load", async () => {
@@ -41,14 +54,11 @@ export default function AreaMap({ kind }: { kind: string }) {
       m.addLayer({
         id: "areas-fill", type: "fill", source: "areas",
         paint: {
-          // 0 -> lightest; first nonzero class starts just above 0, then quantile breaks.
-          "fill-color": top > 0
-            ? ["step", ["get", "share_blighted"], RAMP[0], 1e-9, RAMP[1], ...br.flatMap((b, i) => (RAMP[i + 2] ? [b, RAMP[i + 2]] : []))]
-            : RAMP[0],
+          "fill-color": rampExpr(RAMP, top, br),
           "fill-opacity": 0.75,
         },
       } as maplibregl.AddLayerObject);
-      m.addLayer({ id: "areas-line", type: "line", source: "areas", paint: { "line-color": "#1d2433", "line-width": 0.8 } });
+      m.addLayer({ id: "areas-line", type: "line", source: "areas", paint: { "line-color": INK, "line-width": 0.6, "line-opacity": 0.7 } });
       let [x0, y0, x1, y1] = [180, 90, -180, -90];
       const walk = (c: unknown): void => {
         if (Array.isArray(c) && typeof c[0] === "number") {
@@ -61,8 +71,10 @@ export default function AreaMap({ kind }: { kind: string }) {
       m.on("mousemove", "areas-fill", (e: MapLayerMouseEvent) => setHover(e.features?.[0]?.properties ?? null));
       m.on("mouseleave", "areas-fill", () => setHover(null));
       m.on("click", "areas-fill", (e: MapLayerMouseEvent) => setHover(e.features?.[0]?.properties ?? null));
+      setReady(true);
     });
     return () => {
+      setReady(false);
       m.remove();
       map.current = null;
     };
@@ -82,7 +94,7 @@ export default function AreaMap({ kind }: { kind: string }) {
         ) : (
           <>
             <div>Share of parcels verified blighted</div>
-            <div className="ramp">{RAMP.map((c) => <span key={c} style={{ background: c }} />)}</div>
+            <div className="ramp">{rampFor(theme).map((c) => <span key={c} style={{ background: c }} />)}</div>
             <div className="row" style={{ justifyContent: "space-between", gap: 20 }}>
               <span>none</span><span>{breaks.length ? `${pctTxt(breaks[breaks.length - 1])}+` : ""}</span><span>max {pctTxt(max)}</span>
             </div>

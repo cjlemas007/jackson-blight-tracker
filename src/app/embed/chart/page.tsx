@@ -3,6 +3,7 @@ import { HBarChart, WeeklyColumns } from "@/components/embed/Charts";
 import { AREA_KINDS, areaRankings, type AreaKind } from "@/lib/rankings";
 import { weeklyTrend } from "@/lib/charts";
 import { cityResponse } from "@/lib/cityResponse";
+import { STATUS_COLORS } from "@/lib/palette";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +25,9 @@ export default async function EmbedChart({ searchParams }: { searchParams: Promi
     return (
       <EmbedFrame title={title ?? "Each week in Jackson"} link="/city">
         <WeeklyColumns points={points as unknown as { week: string; [k: string]: number | string }[]} series={[
-          { key: "verified", label: "Newly verified blighted", color: "#c62828" },
-          { key: "city_actions", label: "City actions", color: "#f2a900" },
-          { key: "demolished", label: "Demolished", color: "#2e7d32" },
+          { key: "verified", label: "Newly verified blighted", color: STATUS_COLORS.verified_blighted },
+          { key: "city_actions", label: "City actions", color: STATUS_COLORS.city_action },
+          { key: "demolished", label: "Demolished", color: STATUS_COLORS.resolved },
         ]} />
       </EmbedFrame>
     );
@@ -35,7 +36,7 @@ export default async function EmbedChart({ searchParams }: { searchParams: Promi
     const r = await cityResponse();
     return (
       <EmbedFrame title={title ?? "Parcels at each stage of City action"} link="/city">
-        <HBarChart color="#f2a900" rows={r.stages.map((s) => ({ label: STAGE[s.substatus], value: s.parcels }))} />
+        <HBarChart color={STATUS_COLORS.city_action} rows={r.stages.map((s) => ({ label: STAGE[s.substatus], value: s.parcels }))} />
       </EmbedFrame>
     );
   }
@@ -49,7 +50,7 @@ export default async function EmbedChart({ searchParams }: { searchParams: Promi
         rows={rows.map((r) => ({ label: r.name, value: r.blighted }))}
         note={(i) => (rows[i].fully_surveyed ? `${(rows[i].share_blighted * 100).toFixed(1)}% of parcels` : "reported so far")}
       />
-      {kind === "neighborhood" && <div style={{ fontSize: 11, color: "#5f6675" }}>Neighborhood boundaries are unofficial.</div>}
+      {kind === "neighborhood" && <div className="note">Neighborhood boundaries are unofficial.</div>}
     </EmbedFrame>
   );
 }

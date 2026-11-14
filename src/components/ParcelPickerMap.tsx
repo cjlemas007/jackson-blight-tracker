@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MapLayerMouseEvent } from "maplibre-gl";
-import { maplibregl } from "./maplibre";
-import { BASEMAP_STYLE, MAP_CENTER } from "@/config";
+import { initialBasemap, maplibregl, useMapTheme } from "./maplibre";
+import { MAP_CENTER } from "@/config";
+import { ACCENT, INK, MAP_INK, type Theme } from "@/lib/palette";
 
 /** Small map for choosing a parcel by tapping it. Parcels appear from zoom 14. */
 export default function ParcelPickerMap({
@@ -17,6 +18,12 @@ export default function ParcelPickerMap({
 }) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
+  const [ready, setReady] = useState(false);
+  useMapTheme(map, ready, ["parcels"], (t: Theme) => ({
+    "pick-fill": { "fill-color": MAP_INK[t].ink },
+    "pick-line": { "line-color": MAP_INK[t].ink },
+    "pick-selected": { "fill-color": MAP_INK[t].accent },
+  }));
   const pick = useRef(onPick);
   pick.current = onPick;
 
@@ -24,7 +31,7 @@ export default function ParcelPickerMap({
     if (!el.current || map.current) return;
     const m = new maplibregl.Map({
       container: el.current,
-      style: BASEMAP_STYLE,
+      style: initialBasemap(),
       center: center ?? MAP_CENTER,
       zoom: center ? 17 : 12,
       attributionControl: { compact: true },
@@ -40,16 +47,16 @@ export default function ParcelPickerMap({
       });
       m.addLayer({
         id: "pick-fill", type: "fill", source: "parcels", "source-layer": "parcels",
-        paint: { "fill-color": "#1d2433", "fill-opacity": 0.08 },
+        paint: { "fill-color": INK, "fill-opacity": 0.06 },
       });
       m.addLayer({
         id: "pick-line", type: "line", source: "parcels", "source-layer": "parcels",
-        paint: { "line-color": "#1d2433", "line-width": 0.6, "line-opacity": 0.5 },
+        paint: { "line-color": INK, "line-width": 0.6, "line-opacity": 0.45 },
       });
       m.addLayer({
         id: "pick-selected", type: "fill", source: "parcels", "source-layer": "parcels",
         filter: ["==", ["get", "parcel_id"], ""],
-        paint: { "fill-color": "#b3261e", "fill-opacity": 0.45 },
+        paint: { "fill-color": ACCENT, "fill-opacity": 0.45 },
       });
       m.on("click", "pick-fill", (e: MapLayerMouseEvent) => {
         const id = e.features?.[0]?.properties?.parcel_id as string | undefined;
@@ -57,6 +64,7 @@ export default function ParcelPickerMap({
       });
       m.on("mouseenter", "pick-fill", () => (m.getCanvas().style.cursor = "pointer"));
       m.on("mouseleave", "pick-fill", () => (m.getCanvas().style.cursor = ""));
+      setReady(true);
     });
     return () => {
       m.remove();

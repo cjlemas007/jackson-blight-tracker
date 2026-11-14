@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import SiteHeader from "@/components/SiteHeader";
+import PageHead from "@/components/PageHead";
 import { currentStaff } from "@/lib/auth/session";
 import { ownerDetail } from "@/lib/rankings";
 import CorrectionForm from "@/components/CorrectionForm";
@@ -30,8 +31,11 @@ export default async function OwnerPage({ params }: { params: Promise<{ id: stri
     <div className="page">
       <SiteHeader staff={staff} />
       <main className="wrap wide">
-        <Link href="/owners" className="muted small">← Owners</Link>
-        <h1>{title}</h1>
+        <Link href="/owners" className="backlink">← All owners</Link>
+        <PageHead
+          kicker={id === "STATE_OF_MISSISSIPPI" ? "State of Mississippi" : id === "CITY_OF_JACKSON" ? "City of Jackson" : id.startsWith("PUB:") ? "Public owner" : "Owner"}
+          title={title}
+        />
         <div className="counters">
           <div className="counter"><div className="n">{blighted.length}</div><div className="l">verified blighted</div></div>
           <div className="counter"><div className="n">{d.parcels.length}</div><div className="l">parcels in Jackson</div></div>

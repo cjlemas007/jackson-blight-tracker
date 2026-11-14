@@ -1,19 +1,20 @@
 import MapApp from "@/components/MapApp";
 import { getFilterOptions } from "@/lib/parcels";
 import { headline } from "@/lib/rankings";
-import { SITE_NAME } from "@/config";
+import SiteHeader from "@/components/SiteHeader";
 import { currentStaff } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const [options, staff, h] = await Promise.all([getFilterOptions(), currentStaff(), headline()]);
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const [options, staff, h, sp] = await Promise.all([getFilterOptions(), currentStaff(), headline(), searchParams]);
+  const search = Object.fromEntries(Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : [])));
   return (
     <MapApp
-      siteName={SITE_NAME}
+      header={<SiteHeader staff={staff && !staff.must_change_password ? staff : null} full />}
       options={options}
       headline={h}
-      staff={staff && !staff.must_change_password ? { name: staff.name, role: staff.role } : null}
+      search={search}
     />
   );
 }

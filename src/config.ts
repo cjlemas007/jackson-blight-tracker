@@ -12,6 +12,7 @@ export const STREET_MIN_PARCELS = 10;
 
 /** Free, keyless vector basemap. Swap for a hosted style if traffic grows. */
 export const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+export const BASEMAP_STYLE_DARK = "https://tiles.openfreemap.org/styles/dark";
 
 export const MAP_CENTER: [number, number] = [-90.2, 32.31];
 
