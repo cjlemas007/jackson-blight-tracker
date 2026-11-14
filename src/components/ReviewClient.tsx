@@ -126,6 +126,17 @@ export default function ReviewClient({
           draw a box over every face and license plate before approving.
         </div>
       )}
+      {!detectorMissing && data.photos.some((p) => p.processing_status === "done") && (
+        <div className="card">
+          Automatic detection found{" "}
+          <strong>
+            {data.photos.reduce((n, p) => n + p.auto_boxes.filter((b) => b.kind === "face").length, 0)} face(s) and{" "}
+            {data.photos.reduce((n, p) => n + p.auto_boxes.filter((b) => b.kind === "plate").length, 0)} plate(s)
+          </strong>{" "}
+          (orange boxes, always blurred). It can miss small, turned or partly hidden faces and plates, so compare each photo
+          with the original and draw boxes for anything it missed.
+        </div>
+      )}
       {failed.length > 0 && (
         <div className="card danger">
           {failed.length} photo{failed.length > 1 ? "s" : ""} failed processing ({failed[0].processing_error}). Request a new photo.

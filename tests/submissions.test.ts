@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+// Workflow tests don't need the ML models (tests/detect.test.ts covers them).
+process.env.DISABLE_DETECTORS = "1";
 import type pg from "pg";
 import { freshTestDb } from "./helpers/testdb";
 import { jpegWithExif } from "./helpers/images";

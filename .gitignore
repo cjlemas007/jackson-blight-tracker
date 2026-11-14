@@ -9,3 +9,4 @@ public/maplibre-gl-worker.mjs
 .next-build/
 storage/
 public/dev-fixtures/
+/models/

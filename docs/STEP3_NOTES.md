@@ -35,12 +35,31 @@ Status history written by the workflow:
 
 ## Not done yet / needs a decision
 
-- **Automatic face and plate detection is not installed.** The detector interface is in place
-  (`src/lib/photos/detect.ts`). Until models are added, the review screen warns admins to box every
-  face and plate by hand. Adding detection needs approval to download the model files.
+- **Detection accuracy is untested on real photos.** Nothing on this machine had real faces or
+  plates to try. Run `npm run detect -- <folder>` on some real Jackson street photos and check the
+  annotated copies it writes.
 - **Production wiring is untested:** Supabase Storage adapter (`src/lib/storage.ts`), the Netlify background
   function that calls `processSubmission`, and the scheduled sync. They get built and tested when the
   Supabase project and Netlify site are set up.
 - **HEIC:** iPhones convert to JPEG when the page asks for JPEG/PNG/WebP. Some iOS settings strip GPS
   on upload, so those photos show "no camera location" in the queue.
 - **Abandoned drafts** (photos uploaded but never sent) are kept; a cleanup job comes later.
+
+## Face and plate detection (added 2026-11-13)
+
+| Model | Source | Size | License |
+|---|---|---|---|
+| `face_detection_yunet_2023mar.onnx` | Hugging Face `opencv/face_detection_yunet` (OpenCV Zoo) | 232,589 B | MIT |
+| `yolo-v9-t-640-license-plates-end2end.onnx` | GitHub release, `ankandrew/open-image-models` | 7,835,770 B | Repo is MIT; the weights' YOLOv9 training lineage isn't stated (the original YOLOv9 repo is GPL-3.0). Used only server-side to find areas to blur; not redistributed. |
+
+- `npm run models` (also runs before `dev` and `build`) downloads both into `models/` (gitignored)
+  and verifies size + SHA-256. YuNet's hash is Hugging Face's published one. The plate model's hash
+  was pinned from the first download, since GitHub publishes none.
+- The runtime is `onnxruntime-web` (WebAssembly, MIT), so there are no native binaries for Netlify. Netlify's
+  function config must include `models/**` and onnxruntime-web's `.wasm` file (deploy step).
+- Each photo runs whole plus as four overlapping tiles so small faces and distant plates survive the
+  640px model input. Detections are merged with NMS. Thresholds: faces 0.6 (OpenCV's default is 0.9),
+  plates 0.25. Low on purpose: blurring a false positive is harmless.
+- About 1.3–1.8 s per 1600×1200 photo on this Mac (single-threaded WebAssembly).
+- Detector boxes (orange in the review screen) are always blurred. Admins add boxes for misses after
+  comparing with the original. `DISABLE_DETECTORS=1` turns detection off.

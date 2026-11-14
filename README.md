@@ -14,6 +14,7 @@ cp .env.example .env.local          # then edit if needed
 npm install
 npm run db:up                       # PostGIS 17 in Docker on localhost:54329
 npm run db:migrate
+npm run models                      # face/plate detection models (~8 MB, checksum-verified)
 npm run sync                        # full pull: ~5–10 min (BigQuery + ArcGIS + Census geocoder)
 npm run dev                         # http://localhost:3000
 npm test                            # unit + database tests (uses the blight_test database)
