@@ -13,9 +13,12 @@ export default function SiteHeader({ staff }: { staff: Staff | null }) {
         <Link href="/owners">Owners</Link>
         <Link href="/streets">Streets</Link>
         <Link href="/areas">Areas</Link>
+        <Link href="/city">City response</Link>
         {staff && <Link href="/submit">Submit</Link>}
+        {staff && <Link href="/verify">Needs a check</Link>}
         {staff && <Link href="/my">My submissions</Link>}
         {staff?.role === "admin" && <Link href="/admin">Review queue</Link>}
+        {staff?.role === "admin" && <Link href="/admin/city">City actions</Link>}
         {staff?.role === "admin" && <Link href="/admin/staff">Staff</Link>}
         {staff ? (
           <>

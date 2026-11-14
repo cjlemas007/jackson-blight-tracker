@@ -13,6 +13,8 @@ import {
   addPhotoSlot, createDraft, publicPhotos, removePhoto, review, submissionDetail, submit, type SubmitInput,
 } from "@/lib/submissions";
 import { APPROVAL_STANDARD } from "@/lib/approval";
+import { headline } from "@/lib/rankings";
+import { needsNewsroomCheck } from "@/lib/cityResponse";
 
 /** In-memory storage standing in for disk / Supabase. */
 const files = new Map<string, Buffer>();
@@ -29,7 +31,7 @@ let other: Staff;
 let admin: Staff;
 
 // Parcel A..E inside the test city; Z outside it. Each is a ~10m square; A's center is the reference point.
-const PARCELS: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, E: 4, Z: 50 };
+const PARCELS: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, Z: 50 };
 const lonOf = (i: number) => -90.2 + i * 0.001;
 
 const OK: SubmitInput = { conditions: ["vacant_open"], vantageConfirmed: true };
@@ -228,3 +230,36 @@ describe("reviewing", () => {
     });
   });
 });
+
+describe("City-flagged parcels", () => {
+  const cite = (parcel: string, sub: string, date: string) =>
+    pool.query(
+      `INSERT INTO app.status_events (county, parcel_id, status, substatus, effective_date, source, recorded_by)
+       VALUES ('Hinds', $1, 'city_action', $2, $3, 'city_record', 'test')`,
+      [parcel, sub, date],
+    );
+
+  it("lists them for staff, strongest City findings first, and counts them separately", async () => {
+    await cite("F", "cited", "2026-09-01");
+    await cite("G", "demolition_ordered", "2026-10-01");
+    expect((await needsNewsroomCheck()).map((r) => [r.parcel_id, r.substatus])).toEqual([["G", "demolition_ordered"], ["F", "cited"]]);
+    const h = await headline();
+    expect(h.city_flagged).toBe(2);
+  });
+
+  it("a staff photo verifies a flagged parcel without hiding the City action", async () => {
+    const before = await headline();
+    const id = await fullSubmission(contributor, "F");
+    const d = await submissionDetail(id);
+    expect(d.kind).toBe("initial"); // needs verifying, not a follow-up
+    expect(await events("F")).toEqual(["city_action/city_record"]); // no 'submitted' marker over the City status
+    await review(admin, id, { action: "approve", checklist: ALL_CHECKED });
+    expect(await events("F")).toEqual(["city_action/city_record", "verified_blighted/user_photo"]);
+    expect(await status("F")).toBe("city_action"); // still shows the City action
+    const after = await headline();
+    expect(after.city_flagged).toBe(before.city_flagged - 1);
+    expect(after.blighted).toBe(before.blighted + 1);
+    expect((await needsNewsroomCheck()).map((r) => r.parcel_id)).toEqual(["G"]);
+  });
+});
+

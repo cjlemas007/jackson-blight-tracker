@@ -204,3 +204,5 @@ body { display: flex; flex-direction: column; min-height: 100dvh; }
 .area-legend .ramp { display: flex; gap: 0; margin: 4px 0; }
 .area-legend .ramp span { width: 28px; height: 10px; }
 .change.up { color: #b3261e; } .change.down { color: #2e7d32; }
+.table a.btn { color: #fff; text-decoration: none; }
+.table a.btn.secondary { color: var(--ink); }

@@ -56,6 +56,7 @@ export default async function OwnersPage({ searchParams }: { searchParams: Promi
                         </div>
                       )}
                       {r.blighted_excluded > 0 && <div className="muted small">{r.blighted_excluded} more blighted, excluded (homestead/estate)</div>}
+                      {r.city_flagged > 0 && <div className="muted small">plus {r.city_flagged} City-flagged, not yet verified</div>}
                     </td>
                     <td className="num"><strong>{r.blighted}</strong></td>
                     <td className="num">{r.total_parcels.toLocaleString()}</td>

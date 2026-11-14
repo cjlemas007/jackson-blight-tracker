@@ -57,7 +57,10 @@ export default async function StreetsPage({
                   <tr key={r.street_name}>
                     <td className="num">{i + 1}</td>
                     <td><strong>{r.street_name}</strong></td>
-                    <td className="num"><strong>{r.blighted}</strong></td>
+                    <td className="num">
+                      <strong>{r.blighted}</strong>
+                      {r.city_flagged > 0 && <div className="muted small">+{r.city_flagged} City-flagged</div>}
+                    </td>
                     <td className="num">{r.total_parcels}</td>
                     <td>
                       <div className="bar" aria-hidden><span style={{ width: fmtPct(r.share_blighted) }} /></div>

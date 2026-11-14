@@ -35,7 +35,8 @@ export const OWNER_TYPE_LABELS: Record<string, string> = {
  * approves it, so it shows as unreported (or as the parcel's prior public state once
  * follow-up submissions exist; handled in step 3 with the submissions table).
  */
-const PUBLIC_STATUS = "(CASE WHEN p.status = 'submitted' THEN 'unreported' ELSE p.status::text END)";
+const PUBLIC_STATUS =
+  "(CASE WHEN p.status = 'submitted' THEN 'unreported' WHEN p.status = 'city_action' AND NOT p.ever_verified THEN 'city_flagged' ELSE p.status::text END)";
 
 /** Below parcel zoom: just the parcels with a public status, as points (a few hundred city-wide). */
 export async function getStatusPointsTile(z: number, x: number, y: number): Promise<Buffer> {
@@ -122,7 +123,8 @@ export async function getParcel(county: string, parcelId: string) {
             CASE WHEN p.status = 'submitted' THEN NULL ELSE p.status_since END AS status_since,
             p.owner_source, p.on_tax_roll,
             to_char(p.owner_as_of AT TIME ZONE 'America/Chicago', 'Mon DD, YYYY') AS owner_as_of,
-            ST_X(p.pt) AS lon, ST_Y(p.pt) AS lat
+            ST_X(p.pt) AS lon, ST_Y(p.pt) AS lat,
+            (SELECT max(list_date)::text FROM app.state_inventory_latest si WHERE si.county = p.county AND si.parcel_id = p.parcel_id) AS state_list_date
      FROM app.parcels p
      LEFT JOIN data.parcel_tax t ON t.county = p.county AND t.parcel_id = p.parcel_id
      LEFT JOIN data.boundaries nb ON nb.kind = 'neighborhood' AND nb.code = p.neighborhood
@@ -132,9 +134,13 @@ export async function getParcel(county: string, parcelId: string) {
   );
   if (!rows.length) return null;
   const history = await query(
-    `SELECT e.id, e.status::text AS status, e.substatus, e.effective_date, e.source::text AS source, e.note,
-            e.document_id, (v.event_id IS NOT NULL) AS voided
+    // Notes stay internal (admin notes, case numbers from imported records): never in the public API.
+    `SELECT e.id, e.status::text AS status, e.substatus, e.effective_date, e.source::text AS source,
+            CASE WHEN d.public AND d.uploaded_at IS NOT NULL THEN d.id END AS document_id,
+            CASE WHEN d.public AND d.uploaded_at IS NOT NULL THEN COALESCE(d.title, d.original_name) END AS document_title,
+            (v.event_id IS NOT NULL) AS voided
      FROM app.status_events e LEFT JOIN app.status_event_voids v ON v.event_id = e.id
+     LEFT JOIN app.documents d ON d.id = e.document_id
      WHERE e.county = $1 AND e.parcel_id = $2
        AND e.status NOT IN ('submitted', 'unreported') -- nothing is public until an admin approves
        AND v.event_id IS NULL

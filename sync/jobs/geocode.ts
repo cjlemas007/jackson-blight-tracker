@@ -1,6 +1,6 @@
 import type { Job } from "../runner";
 import { tx } from "../runner";
-import { parseCsv, toCsv } from "../csv";
+import { parseCsv, toCsv } from "@/lib/csv";
 import { CENSUS_BATCH_GEOCODER } from "../sources";
 import { COUNTY } from "@/config";
 

@@ -59,7 +59,10 @@ export default async function AreasPage({ searchParams }: { searchParams: Promis
               {rows.map((r) => (
                 <tr key={r.code}>
                   <td><strong>{r.name}</strong></td>
-                  <td className="num"><strong>{r.blighted}</strong></td>
+                  <td className="num">
+                    <strong>{r.blighted}</strong>
+                    {r.city_flagged > 0 && <div className="muted small">+{r.city_flagged} City-flagged</div>}
+                  </td>
                   <td className="num">{r.total_parcels.toLocaleString()}</td>
                   <td className={r.fully_surveyed ? "" : "floor"}>{blightRateLabel(r.blighted, r.total_parcels, r.surveyed)}</td>
                   <td className="num"><Change now={r.blighted} then={r.blighted_30d_ago} /></td>

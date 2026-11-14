@@ -22,7 +22,10 @@ export const PLATE_MODEL = "yolo-v9-t-640-license-plates-end2end.onnx";
 export const FACE_THRESHOLD = 0.6; // OpenCV's default is 0.9; lower = more recall
 export const PLATE_THRESHOLD = 0.25;
 
-const modelsDir = () => path.resolve(process.env.MODELS_DIR ?? "models");
+// Model files are bundled explicitly at deploy time (Netlify included_files: models/**), so keep the
+// bundler from tracing these dynamic paths (which would pull the whole project into the server build).
+const modelsDir = () => path.resolve(/*turbopackIgnore: true*/ process.env.MODELS_DIR ?? "models");
+const modelPath = (file: string) => path.join(/*turbopackIgnore: true*/ modelsDir(), file);
 
 interface PxBox {
   x1: number;
@@ -145,7 +148,7 @@ export function decodePlates(out: ort.Tensor, threshold: number): PxBox[] {
 const sessions = new Map<string, Promise<ort.InferenceSession>>();
 function session(file: string) {
   if (!sessions.has(file)) {
-    sessions.set(file, ort.InferenceSession.create(new Uint8Array(readFileSync(path.join(modelsDir(), file)))));
+    sessions.set(file, ort.InferenceSession.create(new Uint8Array(readFileSync(/*turbopackIgnore: true*/ modelPath(file)))));
   }
   return sessions.get(file)!;
 }
@@ -210,5 +213,5 @@ export const plateDetector: Detector = {
 
 /** Both models present on disk? */
 export function modelsAvailable(): boolean {
-  return [FACE_MODEL, PLATE_MODEL].every((f) => existsSync(path.join(modelsDir(), f)));
+  return [FACE_MODEL, PLATE_MODEL].every((f) => existsSync(/*turbopackIgnore: true*/ modelPath(f)));
 }

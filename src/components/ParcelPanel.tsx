@@ -8,7 +8,8 @@ interface HistoryItem {
   substatus: string | null;
   effective_date: string;
   source: string;
-  note: string | null;
+  document_id: string | null;
+  document_title: string | null;
 }
 
 interface Parcel {
@@ -43,6 +44,7 @@ interface Parcel {
   substatus: string | null;
   status_since: string | null;
   owner_as_of: string | null;
+  state_list_date: string | null;
   history: HistoryItem[];
   photos: { id: string; taken_on: string; verified_on: string; kind: string }[];
 }
@@ -57,6 +59,7 @@ const STATUS: Record<string, string> = {
   unreported: "Not reported",
   verified_blighted: "Verified blighted",
   city_action: "City action pending",
+  city_flagged: "City-flagged, not yet checked by the newsroom",
   resolved: "Resolved",
 };
 const SUB: Record<string, string> = {
@@ -146,6 +149,7 @@ export default function ParcelPanel({ county, parcelId, onClose }: { county: str
                   {OWNER_TYPE[data.owner_type] ?? data.owner_type}
                   {data.owner_estate_heirs && " · estate/heirs"}
                   {data.homestead && " · homestead exemption"}
+                  {data.state_list_date && <div className="flag">On the Secretary of State&apos;s tax-forfeited list ({data.state_list_date})</div>}
                 </dd>
                 {data.attributed_owner && (
                   <>
@@ -218,7 +222,11 @@ export default function ParcelPanel({ county, parcelId, onClose }: { county: str
                       <div className="when">
                         {h.effective_date} · {SOURCE[h.source] ?? h.source}
                       </div>
-                      {h.note && <div>{h.note}</div>}
+                      {h.document_id && (
+                        <div>
+                          <a href={`/api/documents/${h.document_id}`} target="_blank" rel="noreferrer">{h.document_title ?? "Source document"}</a>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

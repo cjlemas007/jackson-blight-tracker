@@ -22,13 +22,13 @@ export interface Storage {
 }
 
 export function isPrivateKey(key: string) {
-  return key.startsWith("originals/");
+  return key.startsWith("originals/") || key.startsWith("docs/private/");
 }
 
 function assertSafeKey(key: string) {
-  if (!/^(originals|processed)\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$/.test(key)) {
-    throw new Error(`unsafe storage key: ${key}`);
-  }
+  const photo = /^(originals|processed)\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|jpeg|png|webp)$/;
+  const doc = /^docs\/(public|private)\/[0-9a-f-]{36}\.(pdf|csv|jpg|png)$/;
+  if (!photo.test(key) && !doc.test(key)) throw new Error(`unsafe storage key: ${key}`);
 }
 
 class LocalStorage implements Storage {
@@ -112,7 +112,7 @@ export function storage(): Storage {
   if (!instance) {
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    instance = url && key ? new SupabaseStorage(url, key) : new LocalStorage(path.resolve(process.env.LOCAL_STORAGE_DIR ?? "storage"));
+    instance = url && key ? new SupabaseStorage(url, key) : new LocalStorage(path.resolve(/*turbopackIgnore: true*/ process.env.LOCAL_STORAGE_DIR ?? "storage")) // dev only;
   }
   return instance;
 }

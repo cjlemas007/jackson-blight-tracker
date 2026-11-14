@@ -96,6 +96,25 @@ describe("status history", () => {
   });
 });
 
+describe("verification during City action", () => {
+  it("verifies without resetting an open City action; a verification after resolution applies", async () => {
+    await event("A", "city_action", "cited", "2026-10-01"); // City-flagged: City acted first
+    await event("A", "verified_blighted", null, "2026-10-10"); // newsroom checks it later
+    expect((await asOf("2026-10-10")).A).toBe("city_action/cited"); // status not reset
+    await event("A", "city_action", "adjudicated", "2026-10-20");
+    await event("A", "resolved", "repaired", "2026-11-01");
+    await event("A", "verified_blighted", null, "2026-11-05"); // fell apart again
+    expect((await asOf("2026-11-05")).A).toBe("verified_blighted");
+  });
+
+  it("still lets an unreported reset end the City action window", async () => {
+    await event("B", "city_action", "cited", "2026-10-01");
+    await event("B", "unreported", null, "2026-10-05"); // e.g. a correction
+    await event("B", "verified_blighted", null, "2026-10-10");
+    expect((await asOf("2026-10-10")).B).toBe("verified_blighted");
+  });
+});
+
 describe("first_entries (weekly stats primitive)", () => {
   it("counts a parcel in the week it first reached the state, once", async () => {
     // Week of Mon 2026-11-02 .. Sun 2026-11-08

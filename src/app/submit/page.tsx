@@ -5,8 +5,8 @@ import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export default async function SubmitPage({ searchParams }: { searchParams: Promise<{ resume?: string }> }) {
-  const { resume } = await searchParams;
+export default async function SubmitPage({ searchParams }: { searchParams: Promise<{ resume?: string; parcel?: string }> }) {
+  const { resume, parcel } = await searchParams;
   const staff = await requirePageStaff("contributor", resume ? `/submit?resume=${resume}` : "/submit");
 
   let info: ResumeInfo | null = null;
@@ -37,12 +37,24 @@ export default async function SubmitPage({ searchParams }: { searchParams: Promi
     }
   }
 
+  let initial: ResumeInfo["parcel"] | null = null;
+  if (!info && parcel) {
+    const rows = await query<{ parcel_id: string; situs_address: string | null; owner_name: string | null; status: string }>(
+      `SELECT parcel_id, situs_address, owner_name,
+              CASE WHEN status = 'submitted' THEN 'unreported'
+                   WHEN status = 'city_action' AND NOT ever_verified THEN 'city_flagged' ELSE status::text END AS status
+       FROM app.parcels WHERE county = 'Hinds' AND parcel_id = $1 AND in_city`,
+      [parcel],
+    );
+    initial = rows[0] ?? null;
+  }
+
   return (
     <div className="page">
       <SiteHeader staff={staff} />
       <main className="wrap">
         <h1>{info ? "Add a better photo" : "Submit a blighted property"}</h1>
-        <SubmitFlow resume={info} />
+        <SubmitFlow resume={info} initialParcel={initial} />
       </main>
     </div>
   );

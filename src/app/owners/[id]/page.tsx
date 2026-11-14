@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const STATUS: Record<string, string> = {
   unreported: "Not reported", submitted: "Not reported", verified_blighted: "Verified blighted",
-  city_action: "City action pending", resolved: "Resolved",
+  city_action: "City action pending", city_flagged: "City-flagged (not yet verified)", resolved: "Resolved",
 };
 const usd = (n: number | null) =>
   n === null || n === undefined ? "—" : n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });

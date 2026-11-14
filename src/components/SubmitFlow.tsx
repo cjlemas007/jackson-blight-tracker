@@ -36,6 +36,7 @@ const STATUS_TEXT: Record<string, string> = {
   unreported: "Not reported yet",
   verified_blighted: "Already verified (your photos will add to its timeline)",
   city_action: "City action pending (your photos will add to its timeline)",
+  city_flagged: "City-flagged, not yet verified (your photos can verify it)",
   resolved: "Resolved (your photos will add to its timeline)",
 };
 
@@ -46,8 +47,8 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export default function SubmitFlow({ resume }: { resume: ResumeInfo | null }) {
-  const [parcel, setParcel] = useState<ParcelHit | null>(resume?.parcel ?? null);
+export default function SubmitFlow({ resume, initialParcel = null }: { resume: ResumeInfo | null; initialParcel?: ParcelHit | null }) {
+  const [parcel, setParcel] = useState<ParcelHit | null>(resume?.parcel ?? initialParcel);
   const [submissionId, setSubmissionId] = useState<string | null>(resume?.submissionId ?? null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<ParcelHit[]>([]);

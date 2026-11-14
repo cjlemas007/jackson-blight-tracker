@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_DAYS, staffForToken, type Role, type Staff } from "./staff";
+import { WorkflowError } from "../submissions";
 
 export const SESSION_COOKIE = "jbt_session";
 
@@ -69,6 +70,7 @@ export function handle<A extends unknown[]>(fn: (...args: A) => Promise<Response
       return await fn(...args);
     } catch (e) {
       if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status });
+      if (e instanceof WorkflowError) return Response.json({ error: e.message }, { status: e.status });
       console.error(e);
       return Response.json({ error: "Something went wrong." }, { status: 500 });
     }

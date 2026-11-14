@@ -14,6 +14,11 @@ export default function HeadlineCounters({ h, compact = false }: { h: Headline; 
       q: rate.includes("reported so far") ? `Reported so far; ${coverageLabel(h.surveyed, h.total_parcels)}.` : undefined,
     },
     { n: h.resolved_to_date.toLocaleString(), l: "parcels resolved to date" },
+    {
+      n: h.city_flagged.toLocaleString(),
+      l: "City-flagged, not yet checked by the newsroom",
+      q: "Cited or adjudicated by the City; not counted as verified blight until our staff checks them.",
+    },
   ];
   return (
     <div className="counters" aria-label="Headline figures">

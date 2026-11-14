@@ -4,9 +4,10 @@ Map-and-stats site for blighted property in Jackson, MS, built on the Hinds Coun
 See [SPEC.md](SPEC.md) for the product spec and [docs/STEP1_FINDINGS.md](docs/STEP1_FINDINGS.md)
 for what the source data actually looks like.
 
-**Status:** build steps 1–4 done (schema inspection; sync, lifecycle, area/street assignment,
-read-only map; staff submissions, photo pipeline, approval queue; rankings, counters and coverage).
-Steps 5–6 (city action and imports, survey mode, exports, embeds, methodology) are next.
+**Status:** build steps 1–5 done (schema inspection; sync, lifecycle, area/street assignment,
+read-only map; staff submissions, photo pipeline, approval queue; rankings, counters and coverage;
+city-action entry, record imports, City response page). Step 6 (survey mode, exports, embeds,
+methodology and corrections) is next; then a design pass.
 See docs/STEP*_NOTES.md.
 
 ## Run it locally

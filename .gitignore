@@ -10,3 +10,4 @@ public/maplibre-gl-worker.mjs
 storage/
 public/dev-fixtures/
 /models/
+/.next-*/

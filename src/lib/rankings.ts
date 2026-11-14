@@ -26,6 +26,7 @@ export interface Headline {
   state_owned_blighted: number;
   demolished_this_week: number;
   resolved_to_date: number;
+  city_flagged: number; // City acted, newsroom hasn't verified: shown separately, never counted as blighted
   week_start: string;
 }
 
@@ -38,6 +39,7 @@ export async function headline(): Promise<Headline> {
        (SELECT count(*) FROM b)::int AS total_parcels,
        (SELECT count(*) FILTER (WHERE surveyed) FROM b)::int AS surveyed,
        (SELECT count(*) FILTER (WHERE blighted AND owner_type = 'state_forfeited') FROM b)::int AS state_owned_blighted,
+       (SELECT count(*) FILTER (WHERE city_flagged) FROM b)::int AS city_flagged,
        (SELECT count(*) FROM app.first_entries('resolved', 'demolished', (SELECT s FROM wk), (SELECT s FROM wk) + 7) e
           JOIN app.parcel_facts f USING (county, parcel_id) WHERE f.in_city)::int AS demolished_this_week,
        (SELECT count(DISTINCT (e.county, e.parcel_id)) FROM app.status_events_live e
@@ -64,6 +66,7 @@ export interface OwnerRow {
   share_blighted: number; // blighted / total_parcels
   taxes_owed: number; // known unpaid current taxes, all parcels in the portfolio
   surveyed: number;
+  city_flagged: number; // shown beside the ranking; doesn't change the order
 }
 
 /**
@@ -79,7 +82,8 @@ export async function ownerRankings(tab: OwnerTab, limit = 100): Promise<OwnerRo
               count(*) FILTER (WHERE blighted AND ranking_excluded_reason IS NULL)::int AS blighted,
               count(*) FILTER (WHERE blighted AND ranking_excluded_reason IS NOT NULL)::int AS blighted_excluded,
               COALESCE(sum(current_due), 0)::float8 AS taxes_owed,
-              count(*) FILTER (WHERE surveyed)::int AS surveyed
+              count(*) FILTER (WHERE surveyed)::int AS surveyed,
+              count(*) FILTER (WHERE city_flagged)::int AS city_flagged
        FROM b GROUP BY portfolio_id
        HAVING count(*) FILTER (WHERE blighted AND ranking_excluded_reason IS NULL) > 0
      ),
@@ -91,7 +95,7 @@ export async function ownerRankings(tab: OwnerTab, limit = 100): Promise<OwnerRo
      SELECT g.portfolio_id, COALESCE(p.display_name, n.common_name, g.portfolio_id) AS name,
             GREATEST(n.n_names - 1, 0) AS other_names, (p.portfolio_id IS NOT NULL) AS curated,
             g.total_parcels, g.blighted, g.blighted_excluded,
-            g.blighted::float8 / g.total_parcels AS share_blighted, g.taxes_owed, g.surveyed
+            g.blighted::float8 / g.total_parcels AS share_blighted, g.taxes_owed, g.surveyed, g.city_flagged
      FROM g LEFT JOIN names n USING (portfolio_id) LEFT JOIN app.portfolios p USING (portfolio_id)
      ORDER BY g.blighted DESC, share_blighted DESC, g.total_parcels DESC, name
      LIMIT $3`,
@@ -105,7 +109,10 @@ export async function ownerDetail(portfolioId: string) {
   const { rows: parcels } = await pool.query(
     `SELECT f.parcel_id, f.situs_address, f.owner_name, f.owner_type, f.ranking_excluded_reason, f.current_due,
             f.delinquent, f.ward, f.owner_source,
-            COALESCE(s.status::text, 'unreported') AS status, s.substatus, s.status_since::text,
+            CASE WHEN s.status = 'city_action' AND NOT EXISTS (
+                   SELECT 1 FROM app.status_events_live v WHERE v.county = f.county AND v.parcel_id = f.parcel_id AND v.status = 'verified_blighted')
+                 THEN 'city_flagged' ELSE COALESCE(s.status::text, 'unreported') END AS status,
+            s.substatus, s.status_since::text,
             sv.surveyed_on::text
      FROM app.parcel_facts f
      LEFT JOIN app.parcel_status_current s USING (county, parcel_id)
@@ -138,6 +145,7 @@ export interface StreetRow {
   share_blighted: number;
   surveyed: number;
   fully_surveyed: boolean;
+  city_flagged: number;
 }
 
 export async function streetRankings(opts: {
@@ -154,7 +162,8 @@ export async function streetRankings(opts: {
               count(*) FILTER (WHERE blighted)::int AS blighted,
               (count(*) FILTER (WHERE blighted))::float8 / count(*) AS share_blighted,
               count(*) FILTER (WHERE surveyed)::int AS surveyed,
-              (count(*) FILTER (WHERE surveyed))::float8 / count(*) >= $3 AS fully_surveyed
+              (count(*) FILTER (WHERE surveyed))::float8 / count(*) >= $3 AS fully_surveyed,
+              count(*) FILTER (WHERE city_flagged)::int AS city_flagged
        FROM app.ranking_base(${today}, $1)
        WHERE street_name IS NOT NULL
        GROUP BY street_name
@@ -186,13 +195,15 @@ export interface AreaRow {
   fully_surveyed: boolean;
   blighted_30d_ago: number;
   blighted_90d_ago: number;
+  city_flagged: number;
 }
 
 /** Every area of a kind (including ones with nothing reported), with change over 30/90 days. */
 export async function areaRankings(kind: AreaKind, surveyedOnly = false): Promise<AreaRow[]> {
   if (!AREA_KINDS.includes(kind)) throw new Error(`unknown area kind: ${kind}`); // interpolated into SQL below
   const { rows } = await getPool().query<AreaRow>(
-    `WITH now_ AS (SELECT ${kind} AS code, count(*) n, count(*) FILTER (WHERE blighted) b, count(*) FILTER (WHERE surveyed) s
+    `WITH now_ AS (SELECT ${kind} AS code, count(*) n, count(*) FILTER (WHERE blighted) b, count(*) FILTER (WHERE surveyed) s,
+                          count(*) FILTER (WHERE city_flagged) cf
                    FROM app.ranking_base(${today}, $1) WHERE ${kind} IS NOT NULL GROUP BY 1),
           d30 AS (SELECT ${kind} AS code, count(*) FILTER (WHERE blighted) b
                   FROM app.ranking_base(${today} - 30, $1) WHERE ${kind} IS NOT NULL GROUP BY 1),
@@ -201,7 +212,8 @@ export async function areaRankings(kind: AreaKind, surveyedOnly = false): Promis
      SELECT a.code, a.name, a.unofficial,
             n.n::int AS total_parcels, n.b::int AS blighted, n.b::float8 / n.n AS share_blighted,
             n.s::int AS surveyed, n.s::float8 / n.n >= $2 AS fully_surveyed,
-            COALESCE(d30.b, 0)::int AS blighted_30d_ago, COALESCE(d90.b, 0)::int AS blighted_90d_ago
+            COALESCE(d30.b, 0)::int AS blighted_30d_ago, COALESCE(d90.b, 0)::int AS blighted_90d_ago,
+            n.cf::int AS city_flagged
      FROM data.boundaries a
      JOIN now_ n ON n.code = a.code
      LEFT JOIN d30 ON d30.code = a.code

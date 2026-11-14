@@ -21,6 +21,7 @@ const OWNER_TYPES = [
 const STATUSES = [
   { key: "verified_blighted", label: "Verified blighted", hex: "#c62828" },
   { key: "city_action", label: "City action pending", hex: "#f2a900" },
+  { key: "city_flagged", label: "City-flagged, not yet verified", hex: "#9b7bd4" },
   { key: "resolved", label: "Resolved", hex: "#2e7d32" },
   { key: "unreported", label: "Not reported", hex: "#d4cfc4" },
 ] as const;
@@ -265,6 +266,7 @@ export default function MapApp({
           <a href="/owners">Owners</a>
           <a href="/streets">Streets</a>
           <a href="/areas">Areas</a>
+          <a href="/city">City response</a>
           {staff ? (
             <>
               <a href="/submit">Submit</a>

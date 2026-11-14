@@ -52,6 +52,20 @@ async function parcelStatus(c: pg.PoolClient, county: string, parcelId: string):
   return rows[0]?.status ?? "unreported";
 }
 
+/** Has the newsroom ever verified this parcel? (City-flagged parcels haven't.) */
+async function everVerified(c: pg.PoolClient, county: string, parcelId: string): Promise<boolean> {
+  const { rows } = await c.query(
+    "SELECT 1 FROM app.status_events_live WHERE county = $1 AND parcel_id = $2 AND status = 'verified_blighted' LIMIT 1",
+    [county, parcelId],
+  );
+  return rows.length > 0;
+}
+
+/** Follow-up = adds photos to an already verified parcel. City-flagged parcels still need verifying. */
+async function kindFor(c: pg.PoolClient, county: string, parcelId: string, current: string) {
+  return VERIFIED_OR_LATER.includes(current) && (await everVerified(c, county, parcelId)) ? "follow_up" : "initial";
+}
+
 async function addEvent(
   c: pg.PoolClient,
   e: { county: string; parcelId: string; status: string; date?: string; source: string; by: string; submissionId?: string; note?: string },
@@ -208,7 +222,7 @@ export async function submit(
     if (s.status === "needs_photo" && rows[0].fresh === 0) throw new WorkflowError("Add a new photo first.");
 
     const current = await parcelStatus(c, s.county, s.parcel_id);
-    const kind = VERIFIED_OR_LATER.includes(current) ? "follow_up" : "initial";
+    const kind = await kindFor(c, s.county, s.parcel_id, current);
     await c.query("UPDATE app.photos SET processing_status = 'queued' WHERE submission_id = $1 AND processing_status = 'uploading'", [
       submissionId,
     ]);
@@ -258,7 +272,10 @@ export async function review(admin: Staff, submissionId: string, a: ReviewAction
         [submissionId, by, JSON.stringify(a.checklist)],
       );
       const current = await parcelStatus(c, s.county, s.parcel_id);
-      if (current === "unreported" || current === "submitted") {
+      const cityFlagged = current === "city_action" && !(await everVerified(c, s.county, s.parcel_id));
+      if (current === "unreported" || current === "submitted" || cityFlagged) {
+        // On a City-flagged parcel this verifies it but the City action stays the current status
+        // (see app.status_as_of).
         await addEvent(c, { county: s.county, parcelId: s.parcel_id, status: "verified_blighted", source: "user_photo", by, submissionId });
       }
       await audit(c, by, "submission.approve", "submission", submissionId, { parcel: s.parcel_id, parcel_status_before: current });
@@ -288,7 +305,7 @@ export async function review(admin: Staff, submissionId: string, a: ReviewAction
       // and the new parcel gets its own 'submitted' event.
       await revertSubmittedIfNoneOpen(c, s.county, s.parcel_id, by, "Submission moved to the correct parcel");
       const targetStatus = await parcelStatus(c, s.county, target);
-      const kind = VERIFIED_OR_LATER.includes(targetStatus) ? "follow_up" : "initial";
+      const kind = await kindFor(c, s.county, target, targetStatus);
       await c.query("UPDATE app.submissions SET kind = $2 WHERE id = $1", [submissionId, kind]);
       if (targetStatus === "unreported") {
         await addEvent(c, { county: s.county, parcelId: target, status: "submitted", source: "admin_entry", by, submissionId });
