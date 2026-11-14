@@ -3,14 +3,14 @@
 | Decision | Choice | What it means for the build |
 |---|---|---|
 | Hosting | **Netlify + Supabase** (already paid for) | Netlify runs the Next.js site and its functions. Supabase provides Postgres/PostGIS, photo storage and auth. Local dev stays on Docker PostGIS. |
-| Admin sign-in | **Password accounts** | Supabase Auth email + password, **public sign-up turned off**. An owner-admin creates staff accounts. An `app.admins` table holds roles. Every approval is logged with the admin's id. |
+| Staff sign-in | **Password accounts** | Supabase Auth email + password, **public sign-up turned off**. An admin creates each coworker's account with a temporary password, which they change on first sign-in. Roles in `app.staff`: **contributor** (submit photos, survey mode) and **admin** (also approve, city-action entry, account management). Every approval is logged with who made it. Password resets are done by an admin, not by email. |
 | Face/plate blurring | **Automatic on our server + manual fix** | Open-source face and plate detector (ONNX) runs in a Netlify **background function** after upload (15-min / 1 GB limit, so no request timeout). The admin queue lets staff add or adjust blur boxes before approving. Originals stay in a private bucket; only blurred, EXIF-stripped copies are ever public. |
-| Public submitters | **Verified email required** | A submission is held as `unverified` until the submitter clicks an emailed link, then enters the admin queue. No submitter accounts or passwords. |
+| Who submits | **Coworkers only** (revised 2026-11-13; replaces "verified email") | Submitting requires a signed-in staff account. The public can browse the map, rankings and pages but can't submit. **Departs from the spec**, which had viewers submitting. "Request a better photo" shows as an in-app notice to the submitter, not an email. |
 
 ## Why not GitHub Pages
 
-Pages only serves static files. The map tiles, parcel lookups, photo uploads, blurring, email
-verification and the admin side all need server code with database access. Moving all of that
+Pages only serves static files. The map tiles, parcel lookups, photo uploads, blurring, staff
+sign-in and the admin side all need server code with database access. Moving all of that
 into Supabase Edge Functions would be a large rework with no benefit when Netlify is already paid for.
 
 ## Consequences and limits (Netlify docs, checked 2026-11-13)
@@ -21,7 +21,6 @@ into Supabase Edge Functions would be a large rework with no benefit when Netlif
   retry. Fallback if bundle or runtime limits bite: a scheduled GitHub Action.
 - The detector model must fit Netlify's function bundle limits. Verify while building. Fallback: run
   detection in a Supabase Edge Function or a small worker.
-- **Email:** Supabase's built-in sender allows 2 emails/hour and only to team addresses, so it's
-  test-only. Verification links (and admin password resets) need a **custom SMTP provider**. Its
-  default starts at 30 emails/hour in Supabase and can be raised. Turn off link tracking at the
-  provider, since it breaks confirmation links. **Provider still to pick.**
+- **Email: none needed.** With staff-only submitting and admin-set passwords, the site sends no email.
+  (Supabase's built-in sender, 2 emails/hour to team addresses only, couldn't do it anyway. If email is ever
+  wanted, for example self-service password resets or public submissions, it needs a custom SMTP provider.)
