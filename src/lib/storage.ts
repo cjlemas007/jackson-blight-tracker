@@ -1,4 +1,4 @@
-import "server-only";
+// No "server-only" here: the Netlify photo worker and CLI scripts load this outside Next.js.
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 

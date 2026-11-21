@@ -1,0 +1,19 @@
+# Netlify runs the Next.js site (adapter auto-detected) plus two functions in netlify/functions:
+# photo-worker (background) and photo-sweep (scheduled). The nightly data sync runs as a GitHub
+# Action instead (.github/workflows/sync.yml), because it needs a Google service-account key and
+# Netlify functions share a ~4 KB environment-variable budget.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+[functions]
+  # Read from disk at runtime, so they must be bundled explicitly.
+  included_files = [
+    "models/*.onnx",
+    "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs",
+    "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm",
+  ]
+  external_node_modules = ["sharp", "onnxruntime-web", "pg"]

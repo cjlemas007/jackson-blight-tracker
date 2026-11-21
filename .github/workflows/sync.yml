@@ -1,0 +1,77 @@
+# Nightly data sync: city boundaries and GIS parcels (ArcGIS), the Hinds County land roll and tax
+# status (BigQuery), geocoding, and the derived tables. Runs migrations first. Each job resumes from
+# its checkpoint, so a failed night picks up where it stopped on the next run.
+#
+# Repository secrets:
+#   SYNC_DATABASE_URL   Supabase session-pooler URL (port 5432; long transactions need session mode)
+#   GCP_SA_KEY          JSON key for a service account with BigQuery Data Viewer + Job User
+# Repository variables:
+#   BQ_PROJECT, BQ_DATASET
+name: Nightly sync
+
+on:
+  schedule:
+    - cron: "0 9 * * *" # 09:00 UTC = 3 AM Central standard time (4 AM during daylight time)
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "Jobs to run (blank = all; see npm run sync -- --list)"
+        required: false
+        default: ""
+
+concurrency:
+  group: nightly-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - name: Sync
+        run: npm run sync -- $SYNC_JOBS
+        env:
+          SYNC_JOBS: ${{ github.event.inputs.jobs }}
+          DATABASE_URL: ${{ secrets.SYNC_DATABASE_URL }}
+          BQ_PROJECT: ${{ vars.BQ_PROJECT }}
+          BQ_DATASET: ${{ vars.BQ_DATASET }}
+
+      # The free Supabase plan has no backups. Keep a nightly dump of the newsroom's own records
+      # (app schema: statuses, photos metadata, submissions, staff, corrections) for 14 days.
+      # The data schema is not dumped: the sync rebuilds it from public sources.
+      - name: Back up newsroom records
+        if: always()
+        run: |
+          mkdir -p backup
+          docker run --rm -v "$PWD/backup:/backup" -e DATABASE_URL postgres:17 \
+            sh -c 'pg_dump "$DATABASE_URL" --schema=app --format=custom --no-owner --file=/backup/app-$(date -u +%F).dump'
+          ls -lh backup
+        env:
+          DATABASE_URL: ${{ secrets.SYNC_DATABASE_URL }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-backup-${{ github.run_id }}
+          path: backup/
+          retention-days: 14
+          if-no-files-found: warn
+
+      # Free plan cap is 500 MB; warn with room to spare.
+      - name: Check database size
+        if: always()
+        run: |
+          bytes=$(docker run --rm -e DATABASE_URL postgres:17 psql "$DATABASE_URL" -Atc "select pg_database_size(current_database())")
+          mb=$((bytes / 1048576))
+          echo "Database size: ${mb} MB of 500 MB"
+          if [ "$mb" -ge 450 ]; then echo "::warning::Database is ${mb} MB, close to the 500 MB free-plan cap"; fi
+        env:
+          DATABASE_URL: ${{ secrets.SYNC_DATABASE_URL }}

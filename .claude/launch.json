@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "3007"],
+      "port": 3007
+    },
+    {
+      "name": "prod-check",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "NEXT_DIST_DIR=.next-check npx next build && SITE_PASSWORD=local-check-lock NEXT_DIST_DIR=.next-check npx next start -p 3011"],
+      "port": 3011
+    }
+  ]
+}

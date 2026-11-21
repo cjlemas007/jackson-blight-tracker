@@ -17,7 +17,10 @@ export function databaseUrl(): string {
 
 export function getPool(url = databaseUrl()): pg.Pool {
   if (!globalForPool.__blightPool) {
-    globalForPool.__blightPool = new pg.Pool({ connectionString: url, max: 8 });
+    // Serverless functions each hold their own pool, so keep it small there (DB_POOL_MAX=2 on
+    // Netlify) and connect through Supabase's transaction pooler.
+    const max = Number(process.env.DB_POOL_MAX) || 8;
+    globalForPool.__blightPool = new pg.Pool({ connectionString: url, max, idleTimeoutMillis: 10_000 });
   }
   return globalForPool.__blightPool;
 }

@@ -11,3 +11,9 @@ storage/
 public/dev-fixtures/
 /models/
 /.next-*/
+
+# Netlify local build output
+.netlify/
+
+# Local secret files (production credentials)
+.env*.local
