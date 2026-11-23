@@ -114,7 +114,7 @@ describe("matching rows to parcels", () => {
     );
     const b = await createCsvBatch(admin, { kind: "code_enforcement", title: "Code cases Jan", documentId: id }, read);
     const counts = await mapBatch(admin, b, { mapping: { parcelId: "Parcel", address: "Address", date: "Date" } });
-    expect(counts).toEqual({ accepted: 4, review: 2, unmatched: 1 });
+    expect(counts).toEqual({ accepted: 4, review: 2, unmatched: 1, waiting: 0 });
     const d = await batchDetail(b);
     const by = Object.fromEntries(d!.rows.map((r: { row_num: number }) => [r.row_num, r]));
     expect([by[1].match_parcel_id, by[1].match_method, by[1].decision]).toEqual(["4854-104-6", "parcel_id", "accepted"]);
@@ -137,7 +137,7 @@ describe("applying a city record import", () => {
     await expect(updateRow(admin, row3.id, { decision: "accepted" })).rejects.toThrow(/Pick a parcel/);
     await updateRow(admin, row3.id, { decision: "skipped" });
     await expect(applyBatch(contributor, b)).rejects.toThrow(/Admins only/);
-    expect(await applyBatch(admin, b)).toEqual({ events: 2, duplicates: 0, listed: 0, skipped: 1 });
+    expect(await applyBatch(admin, b)).toMatchObject({ events: 2, duplicates: 0, listed: 0, skipped: 1 });
     expect(await events("142-23")).toEqual([{ s: "resolved/demolished", source: "city_record" }]);
     // The same list, obtained again in a later records request:
     const again = await createCsvBatch(admin, { kind: "demolition_list", title: "Demolitions FY26 (again)", documentId: await csvDoc(text) }, read);
@@ -167,7 +167,7 @@ describe("council agenda quick entry", () => {
       substatus: "adjudicated",
       lines: "7 Martin Luther King Jr Dr\n\n4854-104-6\n",
     });
-    expect((await batchDetail(b))!.stats).toEqual({ accepted: 2, review: 0, unmatched: 0 });
+    expect((await batchDetail(b))!.stats).toEqual({ accepted: 2, review: 0, unmatched: 0, waiting: 0 });
     await applyBatch(admin, b);
     expect(await events("300-1")).toEqual([{ s: "city_action/adjudicated", source: "council_agenda" }]);
     const { rows } = await pool.query("SELECT effective_date::text d FROM app.status_events WHERE parcel_id = '300-1'");

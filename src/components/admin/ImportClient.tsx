@@ -9,6 +9,8 @@ interface Row {
   raw: Record<string, string>;
   input_parcel_id: string | null;
   input_address: string | null;
+  input_case_no: string | null;
+  agenda_item: string | null;
   event_date: string | null;
   event_substatus: string | null;
   note: string | null;
@@ -16,7 +18,7 @@ interface Row {
   match_method: string | null;
   match_score: number | null;
   candidates: { parcel_id: string; situs_address: string | null; score?: number }[];
-  decision: "pending" | "accepted" | "skipped";
+  decision: "pending" | "accepted" | "skipped" | "waiting_case";
   apply_result: string | null;
   match_address: string | null;
   match_owner: string | null;
@@ -37,6 +39,7 @@ interface Batch {
 
 const METHOD: Record<string, string> = {
   parcel_id: "parcel ID", dpin: "DPIN", address_exact: "exact address", address_fuzzy: "similar address", manual: "picked by admin",
+  case_no: "case number",
 };
 
 function guess(headers: string[], words: RegExp) {
@@ -47,6 +50,7 @@ function Mapping({ batch }: { batch: Batch }) {
   const h = batch.headers;
   const [parcelId, setParcelId] = useState(batch.mapping?.parcelId ?? guess(h, /parcel|ppin|pin\b|tax ?id/));
   const [address, setAddress] = useState(batch.mapping?.address ?? guess(h, /address|street|location|situs/));
+  const [caseNo, setCaseNo] = useState(batch.mapping?.caseNo ?? guess(h, /case/));
   const [date, setDate] = useState(batch.mapping?.date ?? guess(h, /date/));
   const [note, setNote] = useState(batch.mapping?.note ?? "");
   const [defaultDate, setDefaultDate] = useState(batch.default_date ?? "");
@@ -70,7 +74,8 @@ function Mapping({ batch }: { batch: Batch }) {
           {col("Parcel ID column", parcelId, setParcelId)}
           {col("Address column", address, setAddress)}
           {col("Date column", date, setDate)}
-          {col("Note column (case number, etc.)", note, setNote)}
+          {col("Case number column", caseNo, setCaseNo)}
+          {col("Note column", note, setNote)}
         </div>
         <label className="stack" style={{ gap: 4, maxWidth: 260 }}>
           <span className="muted small">{batch.kind === "sos_forfeited" ? "List date" : "Date for rows without one"}</span>
@@ -108,7 +113,7 @@ function Mapping({ batch }: { batch: Batch }) {
           setError(null);
           try {
             await post(`/api/admin/imports/${batch.id}/map`, {
-              mapping: { parcelId: parcelId || null, address: address || null, date: date || null, note: note || null },
+              mapping: { parcelId: parcelId || null, address: address || null, caseNo: caseNo || null, date: date || null, note: note || null },
               defaultDate: defaultDate || null,
               substatus: batch.kind === "sos_forfeited" ? null : sub,
             });
@@ -170,9 +175,11 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
     <tr style={r.decision === "skipped" ? { opacity: 0.5 } : undefined}>
       <td className="num small">{r.row_num}</td>
       <td className="small">
+        {r.agenda_item && <div className="muted">Item {r.agenda_item}</div>}
         {r.input_parcel_id && <div>ID {r.input_parcel_id}</div>}
         {r.input_address && <div>{r.input_address}</div>}
-        {r.note && <div className="muted">{r.note}</div>}
+        {r.input_case_no && <div>Case {r.input_case_no}</div>}
+        {r.note && !r.agenda_item && <div className="muted">{r.note}</div>}
       </td>
       <td className="small">{r.event_date ?? batch.default_date ?? <span className="error">none</span>}</td>
       <td className="small">
@@ -185,6 +192,14 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
               {r.match_in_city === false && " · outside city limits"}
             </div>
           </>
+        ) : r.decision === "waiting_case" ? (
+          <span className="muted">
+            {r.apply_result?.startsWith("moved:") ? (
+              <>Matched later: <a href={`/admin/imports/${r.apply_result.slice(6)}`}>see the follow-up import</a></>
+            ) : (
+              <>Waiting: no case log links case {r.input_case_no} to a parcel yet. It&apos;s matched automatically once one does, or pick the parcel now.</>
+            )}
+          </span>
         ) : (
           <span className="muted">No match</span>
         )}
@@ -198,7 +213,7 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
             ))}
           </div>
         )}
-        {editable && r.decision === "pending" && (
+        {editable && (r.decision === "pending" || r.decision === "waiting_case") && (
           <div style={{ marginTop: 4 }}><ParcelSearch onPick={(id) => update({ parcelId: id, decision: "accepted" })} /></div>
         )}
         {error && <div className="error">{error}</div>}
@@ -220,9 +235,15 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
               disabled={!r.match_parcel_id} onClick={() => update({ decision: "accepted" })}>Accept</button>
             <button type="button" className={`btn ${r.decision === "skipped" ? "danger" : "secondary"}`} style={{ padding: "4px 8px", fontSize: 12 }}
               onClick={() => update({ decision: "skipped" })}>Skip</button>
+            {r.input_case_no && !r.match_parcel_id && r.decision !== "waiting_case" && (
+              <button type="button" className="btn secondary" style={{ padding: "4px 8px", fontSize: 12 }}
+                onClick={() => update({ decision: "waiting_case" })}>Wait for case log</button>
+            )}
           </div>
+        ) : r.apply_result?.startsWith("moved:") ? (
+          "matched later"
         ) : (
-          r.apply_result ?? r.decision
+          r.apply_result ?? (r.decision === "waiting_case" ? "waiting" : r.decision)
         )}
       </td>
     </tr>
@@ -232,11 +253,13 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
 export default function ImportClient({ batch }: { batch: Batch }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "pending" | "accepted" | "skipped">("all");
+  const [filter, setFilter] = useState<"all" | "pending" | "accepted" | "skipped" | "waiting_case">("all");
   if (batch.status === "mapping") return <Mapping batch={batch} />;
   const pending = batch.rows.filter((r) => r.decision === "pending").length;
   const accepted = batch.rows.filter((r) => r.decision === "accepted").length;
   const skipped = batch.rows.filter((r) => r.decision === "skipped").length;
+  const waiting = batch.rows.filter((r) => r.decision === "waiting_case" && !r.apply_result).length;
+  const followUpOf = (batch.stats as { followUpOf?: string }).followUpOf;
   const rows = filter === "all" ? batch.rows : batch.rows.filter((r) => r.decision === filter);
   const applied = (batch.stats as { applied?: Record<string, number> }).applied;
   return (
@@ -244,12 +267,21 @@ export default function ImportClient({ batch }: { batch: Batch }) {
       <div className="counters">
         <div className="counter"><div className="n">{accepted}</div><div className="l">matched, will be recorded</div></div>
         <div className="counter"><div className="n">{pending}</div><div className="l">need a decision</div></div>
+        {waiting > 0 && <div className="counter"><div className="n">{waiting}</div><div className="l">waiting for a case log</div></div>}
         <div className="counter"><div className="n">{skipped}</div><div className="l">skipped</div></div>
       </div>
+      {followUpOf && (
+        <div className="card small">
+          These rows were listed only by case number in <a href={`/admin/imports/${followUpOf}`}>an earlier import</a>. A case log has since linked
+          them to parcels. Check the matches, then record them.
+        </div>
+      )}
       {batch.status === "applied" && applied && (
         <div className="card">
           Applied: {applied.events ?? 0} new entries{applied.listed ? `, ${applied.listed} listed on the State inventory` : ""},{" "}
-          {applied.duplicates ?? 0} already on record (not duplicated), {applied.skipped ?? 0} skipped.
+          {applied.duplicates ?? 0} already on record (not duplicated), {applied.skipped ?? 0} skipped
+          {applied.waiting ? `, ${applied.waiting} waiting for a case log` : ""}.
+          {waiting > 0 && " Waiting rows are matched automatically when a code-enforcement case log that links their case numbers is recorded."}
         </div>
       )}
       {batch.status === "review" && (
@@ -257,6 +289,7 @@ export default function ImportClient({ batch }: { batch: Batch }) {
           <div>
             Rows matched to exactly one parcel by ID or exact address are accepted. Check the rest: pick a candidate, search
             for the right parcel, or skip. Nothing is recorded until you apply.
+            {waiting > 0 && ` ${waiting} row${waiting === 1 ? "" : "s"} listed only by case number will wait: they don't hold up recording the rest.`}
           </div>
           {error && <div className="error">{error}</div>}
           <div className="row">
@@ -282,9 +315,10 @@ export default function ImportClient({ batch }: { batch: Batch }) {
         </div>
       )}
       <nav className="tabs">
-        {(["all", "pending", "accepted", "skipped"] as const).map((f) => (
+        {(["all", "pending", "accepted", "waiting_case", "skipped"] as const).filter((f) => f !== "waiting_case" || waiting > 0).map((f) => (
           <a key={f} href="#" aria-current={filter === f ? "page" : undefined} onClick={(e) => { e.preventDefault(); setFilter(f); }}>
-            {f === "all" ? `All (${batch.rows.length})` : f === "pending" ? `Need a decision (${pending})` : f === "accepted" ? `Accepted (${accepted})` : `Skipped (${skipped})`}
+            {f === "all" ? `All (${batch.rows.length})` : f === "pending" ? `Need a decision (${pending})` : f === "accepted" ? `Accepted (${accepted})`
+              : f === "waiting_case" ? `Waiting for case log (${waiting})` : `Skipped (${skipped})`}
           </a>
         ))}
       </nav>

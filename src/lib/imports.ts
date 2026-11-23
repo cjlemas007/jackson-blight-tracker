@@ -15,6 +15,7 @@ import { audit, type Staff } from "./auth/staff";
 import { WorkflowError } from "./submissions";
 import { cleanText, parseSitus } from "./normalize/address";
 import { storage } from "./storage";
+import { normalizeCaseNo } from "./agendaPdf";
 
 export type ImportKind = "demolition_list" | "code_enforcement" | "council_agenda" | "sos_forfeited";
 
@@ -88,6 +89,7 @@ interface ParcelIndex {
   byCompact: Map<string, string[]>;
   byDpin: Map<string, string>;
   byAddress: Map<string, string[]>; // "522|BURNS ST" -> parcel ids
+  byCase: Map<string, string>; // code-enforcement case "25-2751" -> parcel id
 }
 
 async function loadIndex(db: pg.Pool | pg.PoolClient): Promise<ParcelIndex> {
@@ -95,7 +97,7 @@ async function loadIndex(db: pg.Pool | pg.PoolClient): Promise<ParcelIndex> {
     `SELECT f.parcel_id, f.situs_number, f.street_name, g.dpin
      FROM app.parcel_facts f LEFT JOIN data.gis_parcels g USING (county, parcel_id)`,
   );
-  const idx: ParcelIndex = { byId: new Set(), byCompact: new Map(), byDpin: new Map(), byAddress: new Map() };
+  const idx: ParcelIndex = { byId: new Set(), byCompact: new Map(), byDpin: new Map(), byAddress: new Map(), byCase: new Map() };
   const push = (m: Map<string, string[]>, k: string, v: string) => (m.get(k) ?? m.set(k, []).get(k)!).push(v);
   for (const r of rows) {
     idx.byId.add(r.parcel_id);
@@ -103,24 +105,44 @@ async function loadIndex(db: pg.Pool | pg.PoolClient): Promise<ParcelIndex> {
     if (r.dpin) idx.byDpin.set(r.dpin.replace(/\D/g, ""), r.parcel_id);
     if (r.situs_number && r.street_name) push(idx.byAddress, `${r.situs_number}|${r.street_name}`, r.parcel_id);
   }
+  const cases = await db.query<{ case_no: string; parcel_id: string }>("SELECT case_no, parcel_id FROM app.code_cases WHERE county = 'Hinds'");
+  for (const r of cases.rows) idx.byCase.set(r.case_no, r.parcel_id);
   return idx;
 }
 
 export interface MatchResult {
   parcelId: string | null;
-  method: "parcel_id" | "dpin" | "address_exact" | "address_fuzzy" | null;
+  method: "parcel_id" | "dpin" | "address_exact" | "address_fuzzy" | "case_no" | null;
   score: number | null;
   candidates: { parcel_id: string; situs_address: string | null; score?: number }[];
   accepted: boolean;
 }
 
-/** Match one row. Exact unique matches are accepted; anything else is left for review. */
+/**
+ * Match one row. Exact unique matches are accepted; anything else is left for review. A row whose
+ * parcel ID and address find nothing falls back to its code-enforcement case number, when the case
+ * is already linked to a parcel.
+ */
 export async function matchOne(
   db: pg.Pool | pg.PoolClient,
   idx: ParcelIndex,
-  input: { parcelId: string | null; address: string | null },
+  input: { parcelId: string | null; address: string | null; caseNo?: string | null },
 ): Promise<MatchResult> {
   const none: MatchResult = { parcelId: null, method: null, score: null, candidates: [], accepted: false };
+  const m = await matchByParcelOrAddress(db, idx, input, none);
+  if (m.accepted || m.parcelId || m.candidates.length) return m;
+  const caseNo = normalizeCaseNo(input.caseNo);
+  const byCase = caseNo ? idx.byCase.get(caseNo) : undefined;
+  if (byCase) return { parcelId: byCase, method: "case_no", score: 1, candidates: [], accepted: true };
+  return m;
+}
+
+async function matchByParcelOrAddress(
+  db: pg.Pool | pg.PoolClient,
+  idx: ParcelIndex,
+  input: { parcelId: string | null; address: string | null },
+  none: MatchResult,
+): Promise<MatchResult> {
   const pid = normalizeParcelInput(input.parcelId);
   if (pid) {
     if (idx.byId.has(pid)) return { parcelId: pid, method: "parcel_id", score: 1, candidates: [], accepted: true };
@@ -160,20 +182,24 @@ export async function matchOne(
 async function matchBatch(c: pg.PoolClient, batchId: string) {
   const idx = await loadIndex(c);
   await c.query("SELECT set_limit(0.45)"); // trigram threshold for %
-  const { rows } = await c.query<{ id: number; input_parcel_id: string | null; input_address: string | null }>(
-    "SELECT id, input_parcel_id, input_address FROM app.import_rows WHERE batch_id = $1 ORDER BY row_num",
+  const { rows } = await c.query<{ id: number; input_parcel_id: string | null; input_address: string | null; input_case_no: string | null }>(
+    "SELECT id, input_parcel_id, input_address, input_case_no FROM app.import_rows WHERE batch_id = $1 ORDER BY row_num",
     [batchId],
   );
-  const counts = { accepted: 0, review: 0, unmatched: 0 };
+  const counts = { accepted: 0, review: 0, unmatched: 0, waiting: 0 };
   for (const r of rows) {
-    const m = await matchOne(c, idx, { parcelId: r.input_parcel_id, address: r.input_address });
+    const m = await matchOne(c, idx, { parcelId: r.input_parcel_id, address: r.input_address, caseNo: r.input_case_no });
+    // Nothing to go on but a case number we haven't linked yet: wait for a case log instead of
+    // blocking the batch.
+    const waiting = !m.accepted && !m.parcelId && !m.candidates.length && !!r.input_case_no;
     await c.query(
       `UPDATE app.import_rows SET match_county = CASE WHEN $2::text IS NULL THEN NULL ELSE 'Hinds' END, match_parcel_id = $2,
          match_method = $3, match_score = $4, candidates = $5, decision = $6
        WHERE id = $1`,
-      [r.id, m.parcelId, m.method, m.score, JSON.stringify(m.candidates), m.accepted ? "accepted" : "pending"],
+      [r.id, m.parcelId, m.method, m.score, JSON.stringify(m.candidates), m.accepted ? "accepted" : waiting ? "waiting_case" : "pending"],
     );
     if (m.accepted) counts.accepted++;
+    else if (waiting) counts.waiting++;
     else if (m.parcelId || m.candidates.length) counts.review++;
     else counts.unmatched++;
   }
@@ -251,6 +277,7 @@ export async function createCsvBatch(
 export interface Mapping {
   parcelId?: string | null;
   address?: string | null;
+  caseNo?: string | null;
   date?: string | null;
   note?: string | null;
 }
@@ -267,7 +294,7 @@ export async function mapBatch(
     if (b.status === "applied" || b.status === "discarded") throw new WorkflowError("This import is closed.");
     const m = input.mapping;
     if (!m.parcelId && !m.address) throw new WorkflowError("Pick the parcel ID column, the address column, or both.");
-    for (const col of [m.parcelId, m.address, m.date, m.note]) {
+    for (const col of [m.parcelId, m.address, m.caseNo, m.date, m.note]) {
       if (col && !(b.headers ?? []).includes(col)) throw new WorkflowError(`Unknown column: ${col}`);
     }
     const defaultDate = input.defaultDate ? parseLooseDate(input.defaultDate) : null;
@@ -288,10 +315,17 @@ export async function mapBatch(
          input_parcel_id = NULLIF(CASE WHEN $2::text IS NULL THEN NULL ELSE raw ->> $2 END, ''),
          input_address = NULLIF(CASE WHEN $3::text IS NULL THEN NULL ELSE raw ->> $3 END, ''),
          note = NULLIF(CASE WHEN $4::text IS NULL THEN NULL ELSE raw ->> $4 END, ''),
-         event_date = NULL
+         event_date = NULL, input_case_no = NULL
        WHERE batch_id = $1`,
       [batchId, m.parcelId ?? null, m.address ?? null, m.note ?? null],
     );
+    if (m.caseNo) {
+      const { rows } = await c.query<{ id: number; v: string }>("SELECT id, raw ->> $2 AS v FROM app.import_rows WHERE batch_id = $1", [batchId, m.caseNo]);
+      for (const r of rows) {
+        const cn = normalizeCaseNo(r.v);
+        if (cn) await c.query("UPDATE app.import_rows SET input_case_no = $2 WHERE id = $1", [r.id, cn]);
+      }
+    }
     if (m.date) {
       const { rows } = await c.query<{ id: number; v: string }>("SELECT id, raw ->> $2 AS v FROM app.import_rows WHERE batch_id = $1", [batchId, m.date]);
       for (const r of rows) {
@@ -305,37 +339,94 @@ export async function mapBatch(
   });
 }
 
-/** Council agenda quick entry: one address (or parcel ID) per line. */
+/** One property from an agenda read out of a PDF (see agendaPdf.ts). */
+export interface AgendaEntry {
+  item?: string | null;
+  substatus: string;
+  parcelId?: string | null;
+  address?: string | null;
+  caseNo?: string | null;
+}
+
+/**
+ * Council agenda quick entry. Either `lines` (one address or parcel ID per line, all with the same
+ * action) or `entries` read from the agenda PDF (each with its own action and any of parcel ID,
+ * address and code-enforcement case number).
+ */
 export async function createAgendaBatch(
   staff: Staff,
-  input: { title: string; meetingDate: string; substatus: string; lines: string; documentId?: string | null },
+  input: { title: string; meetingDate: string; substatus?: string; lines?: string; entries?: AgendaEntry[]; documentId?: string | null },
 ): Promise<string> {
   requireAdmin(staff);
   const date = parseLooseDate(input.meetingDate);
   if (!date) throw new WorkflowError("Enter the meeting date.");
-  if (!statusOf(input.substatus)) throw new WorkflowError("Pick what the council did.");
-  const lines = input.lines.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (!lines.length) throw new WorkflowError("Paste at least one address.");
-  if (lines.length > MAX_ROWS) throw new WorkflowError(`Up to ${MAX_ROWS} addresses at a time.`);
+
+  type Raw = { row_num: number; raw: Record<string, string>; parcel: string | null; address: string | null; case_no: string | null; item: string | null; sub: string | null };
+  let raws: Raw[];
+  let batchSub: string;
+  if (input.entries) {
+    const entries = input.entries.filter((e) => e.parcelId?.trim() || e.address?.trim() || e.caseNo?.trim());
+    if (!entries.length) throw new WorkflowError("Pick at least one property to record.");
+    if (entries.length > MAX_ROWS) throw new WorkflowError(`Up to ${MAX_ROWS} properties at a time.`);
+    for (const e of entries) if (!statusOf(e.substatus)) throw new WorkflowError("Pick what the council did for every item.");
+    raws = entries.map((e, i) => {
+      const caseNo = e.caseNo ? normalizeCaseNo(e.caseNo) : null;
+      if (e.caseNo && !caseNo) throw new WorkflowError(`"${e.caseNo}" doesn't look like a case number (like 25-2751).`);
+      const raw: Record<string, string> = {};
+      if (e.item) raw.item = String(e.item);
+      if (caseNo) raw.case = caseNo;
+      if (e.parcelId) raw.parcel = e.parcelId.trim();
+      if (e.address) raw.address = e.address.trim();
+      return {
+        row_num: i + 1, raw, parcel: e.parcelId?.trim() || null, address: e.address?.trim() || null, case_no: caseNo,
+        item: e.item ? String(e.item).slice(0, 20) : null, sub: e.substatus,
+      };
+    });
+    // The batch's own action is the most common one; rows that differ carry their own.
+    const tally = new Map<string, number>();
+    for (const r of raws) tally.set(r.sub!, (tally.get(r.sub!) ?? 0) + 1);
+    batchSub = [...tally].sort((a, b) => b[1] - a[1])[0][0];
+    for (const r of raws) if (r.sub === batchSub) r.sub = null;
+  } else {
+    if (!input.substatus || !statusOf(input.substatus)) throw new WorkflowError("Pick what the council did.");
+    batchSub = input.substatus;
+    const lines = (input.lines ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) throw new WorkflowError("Paste at least one address.");
+    if (lines.length > MAX_ROWS) throw new WorkflowError(`Up to ${MAX_ROWS} addresses at a time.`);
+    raws = lines.map((l, i) => {
+      const looksLikeId = /^\d+(-[\dA-Z]+)+$/i.test(l.replace(/\s/g, ""));
+      return { row_num: i + 1, raw: { line: l }, parcel: looksLikeId ? l : null, address: looksLikeId ? null : l, case_no: null, item: null, sub: null };
+    });
+  }
+
+  const title = input.title.trim() || `Council meeting ${date}`;
   return tx(async (c) => {
     const { rows } = await c.query<{ id: string }>(
       `INSERT INTO app.import_batches (kind, title, document_id, headers, mapping, default_date, event_status, event_substatus, source, created_by, status)
-       VALUES ('council_agenda', $1, $2, '{line}', '{"address":"line"}', $3, $4, $5, 'council_agenda', $6, 'review') RETURNING id`,
-      [input.title.trim() || `Council meeting ${date}`, input.documentId || null, date, statusOf(input.substatus), input.substatus, staff.id],
+       VALUES ('council_agenda', $1, $2, $3, $4, $5, $6, $7, 'council_agenda', $8, 'review') RETURNING id`,
+      [
+        title, input.documentId || null,
+        input.entries ? ["item", "case", "parcel", "address"] : ["line"],
+        input.entries ? { parcelId: "parcel", address: "address", caseNo: "case" } : { address: "line" },
+        date, statusOf(batchSub), batchSub, staff.id,
+      ],
     );
     const id = rows[0].id;
-    const raws = lines.map((l, i) => {
-      const looksLikeId = /^\d+(-[\dA-Z]+)+$/i.test(l.replace(/\s/g, ""));
-      return { row_num: i + 1, raw: { line: l }, parcel: looksLikeId ? l : null, address: looksLikeId ? null : l };
-    });
     await c.query(
-      `INSERT INTO app.import_rows (batch_id, row_num, raw, input_parcel_id, input_address)
-       SELECT $1, r.row_num, r.raw, r.parcel, r.address FROM json_to_recordset($2::json) AS r(row_num int, raw jsonb, parcel text, address text)`,
+      `INSERT INTO app.import_rows (batch_id, row_num, raw, input_parcel_id, input_address, input_case_no, agenda_item, event_substatus, note)
+       SELECT $1, r.row_num, r.raw, r.parcel, r.address, r.case_no, r.item, r.sub,
+              NULLIF(concat_ws(', ', 'Item ' || r.item, 'case ' || r.case_no), '')
+       FROM json_to_recordset($2::json) AS r(row_num int, raw jsonb, parcel text, address text, case_no text, item text, sub text)`,
       [id, JSON.stringify(raws)],
     );
+    if (input.documentId) {
+      await c.query("UPDATE app.documents SET document_date = COALESCE(document_date, $2), title = COALESCE(NULLIF(title, original_name), $3) WHERE id = $1", [
+        input.documentId, date, title,
+      ]);
+    }
     const counts = await matchBatch(c, id);
     await c.query("UPDATE app.import_batches SET stats = $2 WHERE id = $1", [id, JSON.stringify(counts)]);
-    await audit(c, staff.id, "import.create", "import", id, { kind: "council_agenda", rows: lines.length });
+    await audit(c, staff.id, "import.create", "import", id, { kind: "council_agenda", rows: raws.length, fromPdf: !!input.entries });
     return id;
   });
 }
@@ -348,12 +439,13 @@ export async function createAgendaBatch(
 export async function updateRow(
   staff: Staff,
   rowId: number,
-  input: { parcelId?: string | null; decision: "accepted" | "skipped" | "pending"; substatus?: string | null; date?: string | null },
+  input: { parcelId?: string | null; decision: "accepted" | "skipped" | "pending" | "waiting_case"; substatus?: string | null; date?: string | null },
 ) {
   requireAdmin(staff);
+  if (!["accepted", "skipped", "pending", "waiting_case"].includes(input.decision)) throw new WorkflowError("Unknown decision.");
   await tx(async (c) => {
-    const { rows } = await c.query<{ batch_id: string; match_parcel_id: string | null }>(
-      "SELECT batch_id, match_parcel_id FROM app.import_rows WHERE id = $1",
+    const { rows } = await c.query<{ batch_id: string; match_parcel_id: string | null; input_case_no: string | null }>(
+      "SELECT batch_id, match_parcel_id, input_case_no FROM app.import_rows WHERE id = $1",
       [rowId],
     );
     if (!rows[0]) throw new WorkflowError("Row not found.", 404);
@@ -370,6 +462,7 @@ export async function updateRow(
       }
     }
     if (input.decision === "accepted" && !parcel) throw new WorkflowError("Pick a parcel before accepting the row.");
+    if (input.decision === "waiting_case" && !rows[0].input_case_no) throw new WorkflowError("Only rows with a case number can wait for a case log.");
     if (input.substatus && !statusOf(input.substatus)) throw new WorkflowError("Unknown action.");
     const date = input.date ? parseLooseDate(input.date) : undefined;
     if (input.date && !date) throw new WorkflowError("That date isn't valid.");
@@ -448,22 +541,104 @@ export async function applyBatch(staff: Staff, batchId: string) {
       await c.query("UPDATE app.import_rows SET apply_result = 'event', applied_event_id = $2 WHERE id = $1", [r.id, ev.rows[0].id]);
       result.events++;
     }
-    const { rows: sk } = await c.query("SELECT count(*)::int n FROM app.import_rows WHERE batch_id = $1 AND decision = 'skipped'", [batchId]);
-    result.skipped = sk[0].n;
+    const { rows: sk } = await c.query(
+      "SELECT count(*) FILTER (WHERE decision = 'skipped')::int skipped, count(*) FILTER (WHERE decision = 'waiting_case')::int waiting FROM app.import_rows WHERE batch_id = $1",
+      [batchId],
+    );
+    const applied = { ...result, skipped: sk[0].skipped, waiting: sk[0].waiting };
     await c.query(
       "UPDATE app.import_batches SET status = 'applied', applied_by = $2, applied_at = now(), stats = stats || $3::jsonb WHERE id = $1",
-      [batchId, staff.id, JSON.stringify({ applied: result })],
+      [batchId, staff.id, JSON.stringify({ applied })],
     );
-    await audit(c, staff.id, "import.apply", "import", batchId, result);
-    return result;
+    const learned = await learnCases(c, batchId);
+    const followUps = await resolveWaitingCases(c, staff);
+    await audit(c, staff.id, "import.apply", "import", batchId, { ...applied, learnedCases: learned, followUps: followUps.length });
+    return { ...applied, learnedCases: learned, followUps };
   });
+}
+
+// ---------------------------------------------------------------------------------------
+// Code-enforcement case numbers
+// ---------------------------------------------------------------------------------------
+
+/**
+ * Every recorded row that has both a case number and a parcel links that case to the parcel (a
+ * newer link replaces an older one). Returns how many links were added or changed.
+ */
+async function learnCases(c: pg.PoolClient, batchId: string): Promise<number> {
+  const r = await c.query(
+    `INSERT INTO app.code_cases (case_no, county, parcel_id, address, source_batch_id)
+     SELECT DISTINCT ON (r.input_case_no) r.input_case_no, r.match_county, r.match_parcel_id, r.input_address, r.batch_id
+     FROM app.import_rows r
+     WHERE r.batch_id = $1 AND r.decision = 'accepted' AND r.input_case_no IS NOT NULL AND r.match_parcel_id IS NOT NULL
+     ORDER BY r.input_case_no, r.row_num DESC
+     ON CONFLICT (case_no) DO UPDATE SET parcel_id = EXCLUDED.parcel_id, county = EXCLUDED.county,
+       address = COALESCE(EXCLUDED.address, app.code_cases.address), source_batch_id = EXCLUDED.source_batch_id, updated_at = now()
+     WHERE (app.code_cases.county, app.code_cases.parcel_id) IS DISTINCT FROM (EXCLUDED.county, EXCLUDED.parcel_id)`,
+    [batchId],
+  );
+  return r.rowCount ?? 0;
+}
+
+/**
+ * Rows waiting on a case number that is now linked to a parcel. In a batch still under review the
+ * row is matched in place; for an already-recorded batch the rows move to a new follow-up batch
+ * (same meeting, date, action and document) that an admin reviews and records like any other.
+ * Returns the follow-up batch ids.
+ */
+export async function resolveWaitingCases(c: pg.PoolClient, staff: Staff): Promise<string[]> {
+  const { rows } = await c.query<{ id: number; batch_id: string; batch_status: string; county: string; parcel_id: string }>(
+    `SELECT r.id, r.batch_id, b.status AS batch_status, cc.county, cc.parcel_id
+     FROM app.import_rows r
+     JOIN app.import_batches b ON b.id = r.batch_id
+     JOIN app.code_cases cc ON cc.case_no = r.input_case_no
+     WHERE r.decision = 'waiting_case' AND r.apply_result IS NULL AND b.status IN ('review', 'applied')
+     ORDER BY r.batch_id, r.row_num`,
+  );
+  const followUps: string[] = [];
+  const byBatch = new Map<string, typeof rows>();
+  for (const r of rows) (byBatch.get(r.batch_id) ?? byBatch.set(r.batch_id, []).get(r.batch_id)!).push(r);
+  for (const [batchId, items] of byBatch) {
+    if (items[0].batch_status === "review") {
+      for (const r of items) {
+        await c.query(
+          `UPDATE app.import_rows SET match_county = $2, match_parcel_id = $3, match_method = 'case_no', match_score = 1, decision = 'accepted'
+           WHERE id = $1`,
+          [r.id, r.county, r.parcel_id],
+        );
+      }
+      continue;
+    }
+    const { rows: nb } = await c.query<{ id: string }>(
+      `INSERT INTO app.import_batches (kind, title, document_id, headers, mapping, default_date, event_status, event_substatus, source, created_by, status, stats)
+       SELECT kind, left(title || ' (cases matched later)', 300), document_id, headers, mapping, default_date, event_status, event_substatus, source, $2, 'review',
+              jsonb_build_object('followUpOf', id)
+       FROM app.import_batches WHERE id = $1 RETURNING id`,
+      [batchId, staff.id],
+    );
+    const newId = nb[0].id;
+    await c.query(
+      `INSERT INTO app.import_rows (batch_id, row_num, raw, input_parcel_id, input_address, input_case_no, agenda_item, event_date, event_substatus, note,
+                                    match_county, match_parcel_id, match_method, match_score, decision)
+       SELECT $1, row_number() OVER (ORDER BY r.row_num), r.raw, r.input_parcel_id, r.input_address, r.input_case_no, r.agenda_item, r.event_date,
+              r.event_substatus, r.note, cc.county, cc.parcel_id, 'case_no', 1, 'accepted'
+       FROM app.import_rows r JOIN app.code_cases cc ON cc.case_no = r.input_case_no
+       WHERE r.id = ANY($2)`,
+      [newId, items.map((r) => r.id)],
+    );
+    await c.query("UPDATE app.import_rows SET apply_result = $2 WHERE id = ANY($1)", [items.map((r) => r.id), `moved:${newId}`]);
+    await audit(c, staff.id, "import.case_followup", "import", newId, { from: batchId, rows: items.length });
+    followUps.push(newId);
+  }
+  return followUps;
 }
 
 export async function listBatches() {
   const { rows } = await getPool().query(
     `SELECT b.id, b.kind, b.title, b.status, b.created_at, b.applied_at, b.stats, st.name AS created_by_name,
             (SELECT count(*)::int FROM app.import_rows r WHERE r.batch_id = b.id) AS row_count,
-            (SELECT count(*)::int FROM app.import_rows r WHERE r.batch_id = b.id AND r.decision = 'pending') AS pending
+            (SELECT count(*)::int FROM app.import_rows r WHERE r.batch_id = b.id AND r.decision = 'pending') AS pending,
+            (SELECT count(*)::int FROM app.import_rows r WHERE r.batch_id = b.id AND r.decision = 'waiting_case' AND r.apply_result IS NULL) AS waiting
      FROM app.import_batches b JOIN app.staff st ON st.id = b.created_by
      ORDER BY b.created_at DESC LIMIT 100`,
   );
@@ -479,7 +654,7 @@ export async function batchDetail(id: string) {
   );
   if (!rows[0]) return null;
   const { rows: items } = await pool.query(
-    `SELECT r.id, r.row_num, r.raw, r.input_parcel_id, r.input_address, r.event_date::text, r.event_substatus, r.note,
+    `SELECT r.id, r.row_num, r.raw, r.input_parcel_id, r.input_address, r.input_case_no, r.agenda_item, r.event_date::text, r.event_substatus, r.note,
             r.match_parcel_id, r.match_method, r.match_score, r.candidates, r.decision, r.apply_result,
             f.situs_address AS match_address, f.owner_name AS match_owner, f.in_city AS match_in_city
      FROM app.import_rows r LEFT JOIN app.parcel_facts f ON f.county = r.match_county AND f.parcel_id = r.match_parcel_id
