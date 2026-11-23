@@ -52,6 +52,8 @@ jobs:
         if: always()
         run: |
           mkdir -p backup
+          # libpq tools reject node-postgres's uselibpqcompat option: keep just sslmode.
+          export DATABASE_URL="${DATABASE_URL%%\?*}?sslmode=require"
           docker run --rm -v "$PWD/backup:/backup" -e DATABASE_URL postgres:17 \
             sh -c 'pg_dump "$DATABASE_URL" --schema=app --format=custom --no-owner --file=/backup/app-$(date -u +%F).dump'
           ls -lh backup
@@ -69,6 +71,7 @@ jobs:
       - name: Check database size
         if: always()
         run: |
+          export DATABASE_URL="${DATABASE_URL%%\?*}?sslmode=require"
           bytes=$(docker run --rm -e DATABASE_URL postgres:17 psql "$DATABASE_URL" -Atc "select pg_database_size(current_database())")
           mb=$((bytes / 1048576))
           echo "Database size: ${mb} MB of 500 MB"
