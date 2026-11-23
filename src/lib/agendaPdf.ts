@@ -25,6 +25,8 @@ export interface AgendaTarget {
   caseNo: string | null;
   parcelId: string | null;
   address: string | null;
+  /** Why this property is listed but shouldn't be recorded (e.g. the hearing officer dismissed it). */
+  excluded?: string | null;
 }
 
 export interface AgendaItem {
@@ -34,9 +36,15 @@ export interface AgendaItem {
   relevant: boolean; // about blighted / nuisance property
   substatus: string | null; // suggested action
   targets: AgendaTarget[];
+  /** Minutes only: whether the council adopted it (null when the vote couldn't be read). */
+  adopted?: boolean | null;
+  vote?: string | null;
+  /** Minutes only: the PDF pages (1-based) this order spans. */
+  pages?: number[];
 }
 
 export interface ReadAgenda {
+  kind: "agenda" | "minutes";
   meetingDate: string | null; // YYYY-MM-DD
   title: string | null;
   items: AgendaItem[];
@@ -46,13 +54,14 @@ export interface ReadAgenda {
 // PDF -> lines
 // ---------------------------------------------------------------------------------------
 
-const MAX_PAGES = 150;
+// Council minutes reprint every adopted order in full; a year's busiest meetings run past 400 pages.
+const MAX_PAGES = 600;
 
 /** Text lines in reading order, with the x position of each line's first word. */
-export async function pdfLines(buf: Uint8Array): Promise<PdfLine[]> {
+export async function pdfLines(buf: Uint8Array, maxPages = MAX_PAGES): Promise<PdfLine[]> {
   const { getDocumentProxy } = await import("unpdf");
   const pdf = await getDocumentProxy(buf);
-  if (pdf.numPages > MAX_PAGES) throw new Error(`That PDF has ${pdf.numPages} pages; agendas over ${MAX_PAGES} pages aren't supported.`);
+  if (pdf.numPages > maxPages) throw new Error(`That PDF has ${pdf.numPages} pages; documents over ${maxPages} pages aren't supported.`);
   const out: PdfLine[] = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
@@ -82,9 +91,10 @@ export async function pdfLines(buf: Uint8Array): Promise<PdfLine[]> {
 
 const MONTHS = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
 
-/** "November 17, 2026" -> "2026-11-17". */
+/** "November 17, 2026" -> "2026-11-17". Tolerates scanner misreads in the year ("202S", "2O25"). */
 export function parseMeetingDate(s: string): string | null {
-  const m = s.toUpperCase().match(new RegExp(`\\b(${MONTHS.join("|")})\\s+(\\d{1,2}),?\\s+(\\d{4})\\b`));
+  const fixed = s.toUpperCase().replace(/\b(2[0O][0-9OSIl]{2})(?=\D|$)/g, (y) => y.replace(/O/g, "0").replace(/S/g, "5").replace(/[Il]/g, "1"));
+  const m = fixed.match(new RegExp(`\\b(${MONTHS.join("|")})\\s+(\\d{1,2}),?\\s+(\\d{4})`));
   if (!m) return null;
   const mo = MONTHS.indexOf(m[1]) + 1;
   const d = new Date(Date.UTC(Number(m[3]), mo - 1, Number(m[2])));
@@ -105,7 +115,7 @@ export function splitAgenda(lines: PdfLine[]): ReadAgenda {
   const numbered = lines.filter((l) => ITEM_NO.test(firstToken(l.text)));
   if (!numbered.length) {
     const text = lines.map((l) => l.text).join(" ");
-    return { meetingDate, title, items: [describe({ number: null, section: null, text })] };
+    return { kind: "agenda", meetingDate, title, items: [describe({ number: null, section: null, text })] };
   }
   const margin = Math.min(...numbered.map((l) => l.x));
   const atMargin = (l: PdfLine) => l.x <= margin + 6;
@@ -131,7 +141,7 @@ export function splitAgenda(lines: PdfLine[]): ReadAgenda {
     }
   }
   close();
-  return { meetingDate, title, items };
+  return { kind: "agenda", meetingDate, title, items };
 }
 
 function sentenceCase(s: string) {
@@ -236,11 +246,181 @@ function describe(input: { number: string | null; section: string | null; text: 
   return { ...input, text, relevant, substatus, targets: relevant ? groupTargets(findRefs(text)) : [] };
 }
 
+// ---------------------------------------------------------------------------------------
+// Council minutes (pure; tested)
+//
+// Jackson's minutes reprint every order in full, separated by rows of asterisks: an all-caps title,
+// WHEREAS paragraphs, the resolution, then the vote ("moved adoption ... Yeas- ... Nays- ...").
+// Menace declarations include the hearing officer's findings case by case ("1) Case #24-473: Parcel
+// #9-210-1 located at 1746 Myrtle St.: ... recommends that the property be adjudicated ...").
+// ---------------------------------------------------------------------------------------
+
+const SEPARATOR = (t: string) => (t.match(/\*/g)?.length ?? 0) >= 5 && /^[\s*·.,'`-]*$/.test(t);
+const PAGE_FURNITURE = [
+  /^(REGULAR|SPECIAL)( ZONING)?( COUNCIL)? MEETING OF THE (JACKSON )?CITY COUNCIL/i,
+  /^(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY),?\s+[A-Z]+\s+\d/i,
+  /^MINUTE BOOK/i,
+  /^\d{1,4}$/,
+];
+const BODY_START = /^\s*(WHEREAS|BE IT|IT IS|NOW,? (BE IT )?THEREFORE|THEREFORE|(Council ?Member|President|Vice President|Mayor)\b|Yeas|Nays|Absent|.?aid item|Note:|The motion)/i;
+
+/** Minutes: several asterisk separators and the council-meeting page header. */
+export function looksLikeMinutes(lines: PdfLine[]): boolean {
+  return lines.filter((l) => SEPARATOR(l.text)).length >= 3 && lines.filter((l) => PAGE_FURNITURE[0].test(l.text)).length >= 2;
+}
+
+/** Did the council adopt this order? Reads "moved adoption" and the Yeas/Nays lists. */
+export function readVote(body: string): { adopted: boolean | null; vote: string | null } {
+  const t = body.replace(/\s+/g, " ");
+  // Scans misread "Said" ("~aid", "$aid"), so match from "aid item".
+  const notAdopted = /motion failed|failed (for|due to) (a )?lack|lack of a majority|motion to table (carried|passed)|aid item was (pulled|tabled|held|withdrawn|deferred|removed|continued)|item was (pulled|tabled|withdrawn|deferred)|was pulled (by|from)|removed from the agenda/i;
+  if (notAdopted.test(t)) {
+    const why = t.match(/(The motion failed[^.]*\.|.aid item was [^.]*\.|[^.]*lack of a majority[^.]*\.|[^.]*(?:pulled|tabled|withdrawn|deferred|removed from the agenda)[^.]*\.)/i)?.[1];
+    return { adopted: false, vote: (why ?? "Not adopted").replace(/^.aid item/, "Said item").trim() };
+  }
+  const yeas = t.match(/Yeas?\s*[-:–]\s*([^.]*?)\.\s*Nays?/i)?.[1];
+  const nays = t.match(/Nays?\s*[-:–]\s*([^.]*?)\./i)?.[1];
+  const moved = /moved adoption|moved approval|moved to adopt/i.test(t);
+  if (!moved) return { adopted: null, vote: null };
+  if (yeas === undefined) return { adopted: null, vote: "moved; the vote isn't printed" };
+  const count = (s: string | undefined) => (!s || /^\s*no\w{0,3}[;.]?\s*$/i.test(s) ? 0 : s.split(/,|\band\b/).filter((x) => x.trim()).length);
+  const y = count(yeas);
+  const n = count(nays);
+  return { adopted: y > n, vote: `${y}–${n}` };
+}
+
+/** "1) Case #24-473: Parcel #9-210-1 located at 1746 Myrtle St.: ... recommends ... adjudicated ..." */
+export function findingsTargets(body: string): AgendaTarget[] {
+  const t = dashes(body.replace(/\s+/g, " "));
+  const re = /(?:^|\s)\d{1,3}\s*[).]\s*Case\s*(?:#|No\.?)?\s*((?:CE-?)?[0-9O]{2}\s*-\s*\d{1,6})\s*[:;.,]?\s*Parcels?\s*(?:#|No\.?)?\s*([0-9]{1,5}(?:\s*-\s*[0-9A-Z]{1,5}){1,3})\s*,?\s*(?:located\s+)?at\s+(.+?)\s*[:;](?=\s)/gi;
+  const hits = [...t.matchAll(re)];
+  return hits.map((m, i) => {
+    const end = i + 1 < hits.length ? hits[i + 1].index! : t.length;
+    const finding = t.slice(m.index!, end);
+    // Word stems, not whole words: scans misread letters ("adjudicate4d").
+    const adjudicated = /\bbe\s+adjudicat/i.test(finding) && !/\bnot\s+be\s+adjudicat/i.test(finding);
+    const excluded = adjudicated
+      ? null
+      : /abeyance/i.test(finding) ? "Held in abeyance"
+      : /dismiss/i.test(finding) ? "Hearing officer dismissed it"
+      : /not (be )?adjudicated|not a menace/i.test(finding) ? "Not adjudicated"
+      : /continu|reset|rescheduled/i.test(finding) ? "Continued to a later hearing"
+      : "No adjudication recommended";
+    return {
+      caseNo: normalizeCaseNo(m[1].replace(/O/g, "0").replace(/\s/g, "")),
+      parcelId: m[2].replace(/\s/g, ""),
+      address: m[3].replace(/\.$/, "").replace(/\s+/g, " ").trim().toUpperCase(),
+      excluded,
+    };
+  });
+}
+
+/** What a minutes order did, judged from its title only (the WHEREAS text cites earlier actions). */
+export function minutesAction(title: string): string | null {
+  const t = title.toUpperCase();
+  if (/RELEASE OF LIEN|RESTRICTION ON TRANSFER/.test(t)) return null; // housing-program liens, not blight
+  if (/DECLARING .*MENACE/.test(t)) return "adjudicated";
+  if (/ADJUDICATING THE ACTUAL COSTS|IMPOSING A PENALTY AND LIEN|ASSESSING (THE )?(ACTUAL )?COSTS/.test(t)) return "lien_filed";
+  const onProperty = /21-19-11|MENACE|PRIVATE PROPERTY|STATE-OWNED PROPERTY|LOCATED AT|PARCEL/.test(t);
+  if (/DEMOLISH|DEMOLITION OF/.test(t) && onProperty) return "demolition_ordered";
+  if (/BOARD UP|CUT GRASS|REMOVE TRASH/.test(t) && onProperty) return "lot_cleanup_ordered";
+  return null;
+}
+
+export function splitMinutes(lines: PdfLine[]): ReadAgenda {
+  let meetingDate: string | null = null;
+  for (const l of lines.slice(0, 40)) if (!meetingDate && PAGE_FURNITURE[1].test(l.text)) meetingDate = parseMeetingDate(l.text);
+  const head = lines.find((l) => PAGE_FURNITURE[0].test(l.text));
+  const title = head ? sentenceCase(head.text.replace(/\s+\d+$/, "")) : null;
+
+  // Orders are normally fenced by asterisks, but some meetings run one order straight into the next:
+  // a new all-caps ORDER/RESOLUTION title after the current block's body has started also splits.
+  const blocks: PdfLine[][] = [[]];
+  let inBody = false;
+  for (const l of lines) {
+    const t = l.text.trim();
+    if (SEPARATOR(t)) {
+      blocks.push([]);
+      inBody = false;
+    } else if (!PAGE_FURNITURE.some((re) => re.test(t))) {
+      if (inBody && /^(ORDER|RESOLUTION|ORDINANCE)\s+[A-Z]/.test(t) && t === t.toUpperCase()) {
+        blocks.push([]);
+        inBody = false;
+      }
+      if (BODY_START.test(t)) inBody = true;
+      blocks[blocks.length - 1].push(l);
+    }
+  }
+  const items: AgendaItem[] = [];
+  blocks.forEach((block, i) => {
+    if (!block.length) return;
+    const b = block.map((l) => l.text);
+    const split = b.findIndex((l) => BODY_START.test(l));
+    // Pages worth keeping as the source: the title, any case-by-case findings, and the vote. Contract
+    // exhibits (scope of work, insurance forms) can run dozens of scanned pages and are left out.
+    const pages = [...new Set(block.filter((l, j) =>
+      j < (split < 0 ? block.length : Math.max(split, 1)) || /\d\s*[).]\s*Case\s*#?|moved adoption|^\s*(Yeas|Nays)\b/i.test(l.text),
+    ).map((l) => l.page))].sort((x, y) => x - y);
+    const head = (split < 0 ? b : b.slice(0, split)).join(" ").replace(/\s+/g, " ").trim();
+    const body = (split < 0 ? [] : b.slice(split)).join(" ");
+    const substatus = minutesAction(head);
+    // The whole order: a scan-garbled "~aid item was pulled" can land in the title lines.
+    const { adopted, vote } = readVote(b.join(" "));
+    let targets: AgendaTarget[] = [];
+    if (substatus === "adjudicated") {
+      targets = findingsTargets(body);
+      // Cases in the title's list that the findings didn't cover (or whose finding the scan garbled).
+      const known = new Set(targets.map((x) => x.caseNo));
+      for (const r of findRefs(head)) if (r.kind === "case" && !known.has(r.value)) targets.push({ caseNo: r.value, parcelId: null, address: null });
+    } else if (substatus) {
+      targets = groupTargets(findRefs(head));
+    }
+    items.push({
+      number: String(i + 1), section: null, text: head.slice(0, 600), relevant: substatus !== null, substatus, targets, adopted, vote, pages,
+    });
+  });
+  return { kind: "minutes", meetingDate, title, items: mergeRepeats(items) };
+}
+
+/**
+ * Some minutes PDFs contain the same pages twice (scanned twice, read slightly differently each
+ * time). A later order with the same action whose properties mostly repeat an earlier one is folded
+ * into it, and each property (by case number, else parcel or address) is kept once per action.
+ */
+function mergeRepeats(items: AgendaItem[]): AgendaItem[] {
+  const key = (sub: string, t: AgendaTarget) => `${sub}|${t.caseNo ?? t.parcelId ?? t.address}`;
+  const seen = new Map<string, AgendaItem>();
+  const out: AgendaItem[] = [];
+  for (const it of items) {
+    if (!it.relevant || !it.targets.length) {
+      out.push(it);
+      continue;
+    }
+    const keys = it.targets.map((t) => key(it.substatus!, t));
+    const repeats = keys.filter((k) => seen.has(k));
+    if (repeats.length >= keys.length * 0.6) {
+      const earlier = seen.get(repeats[0])!;
+      if (earlier.adopted == null && it.adopted != null) Object.assign(earlier, { adopted: it.adopted, vote: it.vote });
+      it.targets.forEach((t, i) => {
+        if (!seen.has(keys[i])) {
+          earlier.targets.push(t);
+          seen.set(keys[i], earlier);
+        }
+      });
+      continue;
+    }
+    const fresh = it.targets.filter((t, i) => !seen.has(keys[i]) && keys.indexOf(keys[i]) === i);
+    for (const t of fresh) seen.set(key(it.substatus!, t), it);
+    out.push({ ...it, targets: fresh });
+  }
+  return out;
+}
+
 /** Whole pipeline. Throws a readable error for scanned PDFs with no text layer. */
 export async function readAgendaPdf(buf: Uint8Array): Promise<ReadAgenda> {
   const lines = await pdfLines(buf);
   if (lines.length < 5) {
     throw new Error("This PDF has no readable text (it may be a scan). Paste the addresses or parcel numbers instead.");
   }
-  return splitAgenda(lines);
+  return looksLikeMinutes(lines) ? splitMinutes(lines) : splitAgenda(lines);
 }

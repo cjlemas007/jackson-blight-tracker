@@ -10,6 +10,7 @@ export const POST = handle(async (req: Request) => {
     ? b.entries.map((e) => ({
         item: e.item ? String(e.item) : null, substatus: String(e.substatus ?? ""),
         parcelId: e.parcelId ? String(e.parcelId) : null, address: e.address ? String(e.address) : null, caseNo: e.caseNo ? String(e.caseNo) : null,
+        skip: e.skip ? String(e.skip) : null, note: e.note ? String(e.note) : null,
       }))
     : undefined;
   const id = await createAgendaBatch(admin, {

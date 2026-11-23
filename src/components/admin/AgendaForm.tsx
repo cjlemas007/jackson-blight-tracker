@@ -11,6 +11,7 @@ interface Target {
   caseNo: string | null;
   parcelId: string | null;
   address: string | null;
+  excluded?: string | null;
 }
 interface Item {
   number: string | null;
@@ -19,8 +20,11 @@ interface Item {
   relevant: boolean;
   substatus: string | null;
   targets: Target[];
+  adopted?: boolean | null;
+  vote?: string | null;
 }
 interface Read {
+  kind: "agenda" | "minutes";
   meetingDate: string | null;
   title: string | null;
   items: Item[];
@@ -62,7 +66,9 @@ function FromPdf() {
       setTitle(r.title && r.meetingDate ? `${r.title}, ${r.meetingDate}` : r.title ?? "");
       const p: typeof pick = {};
       r.items.forEach((it, i) => {
-        if (it.relevant) p[i] = { on: it.targets.length > 0, sub: it.substatus ?? "adjudicated", keep: it.targets.map(() => true) };
+        if (it.relevant) {
+          p[i] = { on: it.targets.length > 0 && it.adopted !== false, sub: it.substatus ?? "adjudicated", keep: it.targets.map((t) => !t.excluded) };
+        }
       });
       setPick(p);
     } catch (e) {
@@ -85,7 +91,7 @@ function FromPdf() {
     <div className="stack" style={{ gap: 16 }}>
       <section className="card stack">
         <label className="stack" style={{ gap: 4 }}>
-          <span className="muted small">Agenda or minutes PDF (stored publicly: linked from each parcel&apos;s history)</span>
+          <span className="muted small">Agenda or minutes PDF, up to 30 MB (stored publicly: linked from each parcel&apos;s history)</span>
           <input type="file" accept="application/pdf" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setDocumentId(null); setRead(null); }} />
         </label>
         <button className="btn" style={{ alignSelf: "flex-start" }} disabled={!file || !!busy} onClick={readPdf}>
@@ -122,8 +128,13 @@ function FromPdf() {
                   <input type="checkbox" checked={!!p?.on} disabled={!it.targets.length}
                     onChange={(e) => setPick({ ...pick, [i]: { ...p, on: e.target.checked } })} />
                   <span>
-                    <strong>Item {it.number ?? "?"}</strong>
+                    <strong>{read.kind === "minutes" ? "Order" : "Item"} {it.number ?? "?"}</strong>
                     {it.section && <span className="muted small"> · {it.section.toLowerCase()}</span>}
+                    {read.kind === "minutes" && (
+                      <span className={it.adopted === false ? "error small" : "muted small"}>
+                        {" · "}{it.adopted === false ? `not adopted (${it.vote})` : it.adopted ? `adopted ${it.vote}` : (it.vote ?? "vote not found: check the minutes")}
+                      </span>
+                    )}
                     <span className="small" style={{ display: "block", marginTop: 4 }}>
                       {it.text.length > 320 ? `${it.text.slice(0, 320)}…` : it.text}
                     </span>
@@ -143,6 +154,7 @@ function FromPdf() {
                           <input type="checkbox" checked={p.keep[j]} disabled={!p.on}
                             onChange={(e) => { const keep = [...p.keep]; keep[j] = e.target.checked; setPick({ ...pick, [i]: { ...p, keep } }); }} />
                           {targetLabel(t)}
+                          {t.excluded && <span className="muted"> ({t.excluded.toLowerCase()})</span>}
                         </label>
                       ))}
                     </div>

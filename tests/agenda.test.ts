@@ -5,7 +5,10 @@ import type pg from "pg";
 import { freshTestDb } from "./helpers/testdb";
 import { getPool } from "@/lib/db";
 import { createStaff, type Staff } from "@/lib/auth/staff";
-import { findRefs, groupTargets, normalizeCaseNo, readAgendaPdf, splitAgenda, suggestAction, type PdfLine } from "@/lib/agendaPdf";
+import {
+  findRefs, findingsTargets, groupTargets, looksLikeMinutes, minutesAction, normalizeCaseNo, parseMeetingDate, readAgendaPdf, readVote,
+  splitAgenda, splitMinutes, suggestAction, type PdfLine,
+} from "@/lib/agendaPdf";
 import { applyBatch, batchDetail, createAgendaBatch, createCsvBatch, mapBatch, updateRow } from "@/lib/imports";
 
 // ---------------------------------------------------------------------------------------
@@ -157,7 +160,7 @@ describe("recording an agenda read from a PDF", () => {
       ],
     });
     const d = (await batchDetail(b))!;
-    expect(d.stats).toEqual({ accepted: 2, review: 0, unmatched: 0, waiting: 2 });
+    expect(d.stats).toEqual({ accepted: 2, review: 0, unmatched: 0, waiting: 2, preSkipped: 0 });
     const byItem = Object.fromEntries(d.rows.map((r: { input_case_no: string; decision: string }) => [r.input_case_no, r.decision]));
     expect(byItem).toEqual({ "25-2751": "waiting_case", "26-1984": "waiting_case", "24-1899": "accepted", "25-1397": "accepted" });
 
@@ -226,5 +229,82 @@ describe("recording an agenda read from a PDF", () => {
     await expect(
       createAgendaBatch(admin, { title: "x", meetingDate: "2026-12-01", entries: [{ substatus: "adjudicated", caseNo: "nope" }] }),
     ).rejects.toThrow(/case number/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Council minutes
+// ---------------------------------------------------------------------------------------
+
+
+describe("reading council minutes", () => {
+  const L = (text: string, x = 100): PdfLine => ({ page: 1, x, text });
+  const HEADER = [L("REGULAR MEETING OF THE CITY COUNCIL", 170), L("TUESDAY, JANUARY 14, 202S 10:00 A.M. 519", 190)];
+  const VOTE = [L("Council Member Stokes moved adoption; Vice President Hartley seconded."), L("Yeas-Brown-Thomas, Clay, Foote, Grizzell, Hartley, Parkinson and Stokes."), L("Nays-None."), L("Absent-None.")];
+  const SEP = L("* * * * * * * * * * * * * *", 240);
+
+  it("reads the meeting date through scanner misreads", () => {
+    expect(parseMeetingDate("TUESDAY, JANUARY 14, 202S 10:00 A.M. 519")).toBe("2025-01-14");
+    expect(parseMeetingDate("TUESDAY, DECEMBER 2, 202510:00 A.M. 387")).toBe("2025-12-02");
+  });
+
+  it("tells adopted, failed and tabled orders apart", () => {
+    expect(readVote("Council Member Stokes moved adoption; Vice President Hartley seconded. Yeas-Brown-Thomas, Clay and Stokes. Nays-None. Absent-None."))
+      .toEqual({ adopted: true, vote: "3–0" });
+    expect(readVote("Council Member Foote moved adoption. Yeas-Foote. Nays-Banks, Clay, Grizzell, Hartley and Lindsay."))
+      .toEqual({ adopted: false, vote: "1–5" });
+    expect(readVote("Council Member Foote moved adoption. The motion failed for a lack of second.").adopted).toBe(false);
+    expect(readVote("Said item was tabled until the August 18, 2025, Regular Zoning Council Meeting.").adopted).toBe(false);
+    expect(readVote("~aid item was pulled by the Administration.")).toEqual({ adopted: false, vote: "Said item was pulled by the Administration." });
+    expect(readVote("Council Member Stokes moved adoption; Vice President Hartley seconded.")).toEqual({ adopted: null, vote: "moved; the vote isn't printed" });
+  });
+
+  it("classifies orders by title, ignoring housing-program lien releases", () => {
+    expect(minutesAction("RESOLUTION DECLARING CERTAIN PARCELS OF REAL PROPERTY IN THE CITY OF JACKSON TO BE A MENACE")).toBe("adjudicated");
+    expect(minutesAction("ORDER AUTHORIZING THE MAYOR TO EXECUTE A CONTRACT ... TO DEMOLISH A STRUCTURE ... 21-19-11 FOR CASE #CE-22-2421 LOCATED AT 121 TEXAS AVE")).toBe("demolition_ordered");
+    expect(minutesAction("ORDER ... CONTRACT ... TO BOARD UP AND SECURE STRUCTURE ... ON PRIVATE PROPERTY WHICH CONSTITUTE A MENACE")).toBe("lot_cleanup_ordered");
+    expect(minutesAction("RESOLUTION ... ADJUDICATING THE ACTUAL COSTS OF CLEANING PROPERTY AND IMPOSING A PENALTY AND LIEN")).toBe("lien_filed");
+    expect(minutesAction("ORDER AUTHORIZING THE MAYOR TO EXECUTE A RELEASE OF LIEN AND RESTRICTION ON TRANSFER AGAINST THE PROPERTY LOCATED AT 12 STILLWOOD DRIVE")).toBeNull();
+  });
+
+  it("reads hearing findings case by case and sets aside ones not adjudicated", () => {
+    const t = findingsTargets(
+      "1) Case #24-473: Parcel #9-210-1 located at 1746 Myrtle St.: No appearance by owner. Hearing officer recommends that the property be adjudicated as a menace to public health. " +
+      "2) Case #23-2521: Parcel 606-141 located at 2816 Kingswood Ave.: Hearing officer recommends that the property be adjudicated as a menace. " +
+      "3) Case #24-1905: Parcel #135-4 located at 1103 West Capitol St.: Owner completed the work; hearing officer recommends that the case be dismissed. " +
+      "4) Case #25-60: Parcel #409-3-5 located at 3875 California Ave.: Hearing officer recommends that the property be adjudicate4d as a menace. " +
+      "5) Case #24-1596: Parcel #433-116 located at 4645 Normandy Dr.: Hearing officer recommends that the property be held in abeyance for thirty (30) days.",
+    );
+    expect(t).toEqual([
+      { caseNo: "24-473", parcelId: "9-210-1", address: "1746 MYRTLE ST", excluded: null },
+      { caseNo: "23-2521", parcelId: "606-141", address: "2816 KINGSWOOD AVE", excluded: null },
+      { caseNo: "24-1905", parcelId: "135-4", address: "1103 WEST CAPITOL ST", excluded: "Hearing officer dismissed it" },
+      { caseNo: "25-60", parcelId: "409-3-5", address: "3875 CALIFORNIA AVE", excluded: null },
+      { caseNo: "24-1596", parcelId: "433-116", address: "4645 NORMANDY DR", excluded: "Held in abeyance" },
+    ]);
+  });
+
+  it("splits orders, skips earlier actions cited in WHEREAS text, and folds a repeated scan into one order", () => {
+    const contract = [
+      L("ORDER AUTHORIZING THE MAYOR TO EXECUTE A CONTRACT BETWEEN THE CITY OF JACKSON AND"),
+      L("FAIRCLOTH DEMOLITION, INC. TO DEMOLISH A STRUCTURE ... ACCORDING TO MISSISSIPPI CODE"),
+      L("ANNOTATED SECTION 21-19-11 FOR CASE #CE-22-2421 LOCATED AT 121 TEXAS AVE-- PARCEL #116-53- $55,000.00."),
+      L("WHEREAS, on December 17, 2024, the Jackson City Council approved a resolution declaring certain parcels"),
+      L("of real property to be a menace pursuant to Section 21-19-11 for the following cases: 24-1 24-2; and"),
+      ...VOTE,
+    ];
+    const lines = [
+      ...HEADER, SEP, ...contract, SEP,
+      L("ORDER AUTHORIZING THE PURCHASE OF FIRE TRUCKS"), ...VOTE, SEP,
+      ...HEADER, ...contract, SEP, // the same pages again, scanned twice
+    ];
+    expect(looksLikeMinutes(lines)).toBe(true);
+    const r = splitMinutes(lines);
+    expect(r.kind).toBe("minutes");
+    expect(r.meetingDate).toBe("2025-01-14");
+    const rel = r.items.filter((i) => i.relevant);
+    expect(rel).toHaveLength(1);
+    expect(rel[0]).toMatchObject({ substatus: "demolition_ordered", adopted: true, vote: "7–0" });
+    expect(rel[0].targets).toEqual([{ caseNo: "22-2421", parcelId: "116-53", address: "121 TEXAS AVE" }]);
   });
 });

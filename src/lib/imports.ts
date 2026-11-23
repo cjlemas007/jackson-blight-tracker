@@ -341,11 +341,15 @@ export async function mapBatch(
 
 /** One property from an agenda read out of a PDF (see agendaPdf.ts). */
 export interface AgendaEntry {
-  item?: string | null;
+  item?: string | null; // "3" (agenda item 3) or "Order 16" (minutes)
   substatus: string;
   parcelId?: string | null;
   address?: string | null;
   caseNo?: string | null;
+  /** Arrives skipped, with this reason in its note (e.g. "Not adopted", "Hearing officer dismissed it"). */
+  skip?: string | null;
+  /** Extra context for the note (e.g. "vote not printed: check the minutes"). */
+  note?: string | null;
 }
 
 /**
@@ -361,7 +365,10 @@ export async function createAgendaBatch(
   const date = parseLooseDate(input.meetingDate);
   if (!date) throw new WorkflowError("Enter the meeting date.");
 
-  type Raw = { row_num: number; raw: Record<string, string>; parcel: string | null; address: string | null; case_no: string | null; item: string | null; sub: string | null };
+  type Raw = {
+    row_num: number; raw: Record<string, string>; parcel: string | null; address: string | null; case_no: string | null; item: string | null;
+    sub: string | null; skip: string | null; extra: string | null;
+  };
   let raws: Raw[];
   let batchSub: string;
   if (input.entries) {
@@ -380,6 +387,7 @@ export async function createAgendaBatch(
       return {
         row_num: i + 1, raw, parcel: e.parcelId?.trim() || null, address: e.address?.trim() || null, case_no: caseNo,
         item: e.item ? String(e.item).slice(0, 20) : null, sub: e.substatus,
+        skip: e.skip ? String(e.skip).slice(0, 200) : null, extra: e.note ? String(e.note).slice(0, 200) : null,
       };
     });
     // The batch's own action is the most common one; rows that differ carry their own.
@@ -395,7 +403,7 @@ export async function createAgendaBatch(
     if (lines.length > MAX_ROWS) throw new WorkflowError(`Up to ${MAX_ROWS} addresses at a time.`);
     raws = lines.map((l, i) => {
       const looksLikeId = /^\d+(-[\dA-Z]+)+$/i.test(l.replace(/\s/g, ""));
-      return { row_num: i + 1, raw: { line: l }, parcel: looksLikeId ? l : null, address: looksLikeId ? null : l, case_no: null, item: null, sub: null };
+      return { row_num: i + 1, raw: { line: l }, parcel: looksLikeId ? l : null, address: looksLikeId ? null : l, case_no: null, item: null, sub: null, skip: null, extra: null };
     });
   }
 
@@ -415,8 +423,9 @@ export async function createAgendaBatch(
     await c.query(
       `INSERT INTO app.import_rows (batch_id, row_num, raw, input_parcel_id, input_address, input_case_no, agenda_item, event_substatus, note)
        SELECT $1, r.row_num, r.raw, r.parcel, r.address, r.case_no, r.item, r.sub,
-              NULLIF(concat_ws(', ', 'Item ' || r.item, 'case ' || r.case_no), '')
-       FROM json_to_recordset($2::json) AS r(row_num int, raw jsonb, parcel text, address text, case_no text, item text, sub text)`,
+              NULLIF(concat_ws(', ', CASE WHEN r.item ~ '^[0-9]+$' THEN 'Item ' || r.item ELSE r.item END, 'case ' || r.case_no, r.extra,
+                               'skipped: ' || r.skip), '')
+       FROM json_to_recordset($2::json) AS r(row_num int, raw jsonb, parcel text, address text, case_no text, item text, sub text, skip text, extra text)`,
       [id, JSON.stringify(raws)],
     );
     if (input.documentId) {
@@ -425,7 +434,12 @@ export async function createAgendaBatch(
       ]);
     }
     const counts = await matchBatch(c, id);
-    await c.query("UPDATE app.import_batches SET stats = $2 WHERE id = $1", [id, JSON.stringify(counts)]);
+    // Rows the source itself says not to record (not adopted, dismissed) stay visible but skipped.
+    const skipRows = raws.filter((r) => r.skip).map((r) => r.row_num);
+    if (skipRows.length) {
+      await c.query("UPDATE app.import_rows SET decision = 'skipped' WHERE batch_id = $1 AND row_num = ANY($2)", [id, skipRows]);
+    }
+    await c.query("UPDATE app.import_batches SET stats = $2 WHERE id = $1", [id, JSON.stringify({ ...counts, preSkipped: skipRows.length })]);
     await audit(c, staff.id, "import.create", "import", id, { kind: "council_agenda", rows: raws.length, fromPdf: !!input.entries });
     return id;
   });

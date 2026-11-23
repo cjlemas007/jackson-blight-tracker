@@ -167,7 +167,7 @@ describe("council agenda quick entry", () => {
       substatus: "adjudicated",
       lines: "7 Martin Luther King Jr Dr\n\n4854-104-6\n",
     });
-    expect((await batchDetail(b))!.stats).toEqual({ accepted: 2, review: 0, unmatched: 0, waiting: 0 });
+    expect((await batchDetail(b))!.stats).toEqual({ accepted: 2, review: 0, unmatched: 0, waiting: 0, preSkipped: 0 });
     await applyBatch(admin, b);
     expect(await events("300-1")).toEqual([{ s: "city_action/adjudicated", source: "council_agenda" }]);
     const { rows } = await pool.query("SELECT effective_date::text d FROM app.status_events WHERE parcel_id = '300-1'");

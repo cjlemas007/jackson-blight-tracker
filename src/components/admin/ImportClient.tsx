@@ -175,11 +175,11 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
     <tr style={r.decision === "skipped" ? { opacity: 0.5 } : undefined}>
       <td className="num small">{r.row_num}</td>
       <td className="small">
-        {r.agenda_item && <div className="muted">Item {r.agenda_item}</div>}
+        {r.agenda_item && <div className="muted">{/^\d+$/.test(r.agenda_item) ? `Item ${r.agenda_item}` : r.agenda_item}</div>}
         {r.input_parcel_id && <div>ID {r.input_parcel_id}</div>}
         {r.input_address && <div>{r.input_address}</div>}
         {r.input_case_no && <div>Case {r.input_case_no}</div>}
-        {r.note && !r.agenda_item && <div className="muted">{r.note}</div>}
+        {r.note && (!r.agenda_item || /skipped:|vote/.test(r.note)) && <div className="muted">{r.note}</div>}
       </td>
       <td className="small">{r.event_date ?? batch.default_date ?? <span className="error">none</span>}</td>
       <td className="small">
