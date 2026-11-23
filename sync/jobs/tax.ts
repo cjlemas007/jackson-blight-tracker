@@ -1,4 +1,5 @@
 import type { Job } from "../runner";
+import { clearSeen } from "../seen";
 import { tx } from "../runner";
 import { pageQuery, table } from "../bigquery";
 import { COUNTY } from "@/config";
@@ -88,17 +89,39 @@ export const taxJob: Job = {
              latest_tax_year = EXCLUDED.latest_tax_year, current_due = EXCLUDED.current_due,
              current_due_estimated = EXCLUDED.current_due_estimated, current_billed = EXCLUDED.current_billed,
              unpaid_years = EXCLUDED.unpaid_years, redeemed_years = EXCLUDED.redeemed_years,
-             tax_conflict = EXCLUDED.tax_conflict, synced_at = now()`,
+             tax_conflict = EXCLUDED.tax_conflict, synced_at = now()
+           WHERE (data.parcel_tax.latest_tax_year, data.parcel_tax.current_due, data.parcel_tax.current_due_estimated,
+                  data.parcel_tax.current_billed, data.parcel_tax.unpaid_years, data.parcel_tax.redeemed_years, data.parcel_tax.tax_conflict)
+             IS DISTINCT FROM
+                 (EXCLUDED.latest_tax_year, EXCLUDED.current_due, EXCLUDED.current_due_estimated,
+                  EXCLUDED.current_billed, EXCLUDED.unpaid_years, EXCLUDED.redeemed_years, EXCLUDED.tax_conflict)`,
           [JSON.stringify(rows)],
+        );
+        await c.query(
+          `INSERT INTO data.sync_seen (run_id, county, parcel_id)
+           SELECT $1, r.county, r.parcel_id FROM json_to_recordset($2::json) AS r(county text, parcel_id text) ON CONFLICT DO NOTHING`,
+          [ctx.runId, JSON.stringify(rows.map((r) => ({ county: r.county, parcel_id: r.parcel_id })))],
         );
         await ctx.checkpoint(c, nextCursor, rows.length);
       });
     });
     // Parcels absent from this run no longer have tax rows upstream.
-    const r = await ctx.pool.query("DELETE FROM data.parcel_tax WHERE county = $1 AND synced_at < $2", [
-      COUNTY,
-      ctx.startedAt,
-    ]);
-    ctx.stats.removed = r.rowCount;
+    // Same guard as the other jobs: a truncated upstream response must not wipe most of the county.
+    const { rows: seenRows } = await ctx.pool.query<{ seen: number; total: number }>(
+      `SELECT (SELECT count(*) FROM data.sync_seen WHERE run_id = $1 AND county = $2)::int seen,
+              (SELECT count(*) FROM data.parcel_tax WHERE county = $2)::int total`,
+      [ctx.runId, COUNTY],
+    );
+    if (seenRows[0].seen >= seenRows[0].total * 0.9) {
+      const r = await ctx.pool.query(
+        `DELETE FROM data.parcel_tax t WHERE t.county = $1
+           AND NOT EXISTS (SELECT 1 FROM data.sync_seen s WHERE s.run_id = $2 AND s.county = t.county AND s.parcel_id = t.parcel_id)`,
+        [COUNTY, ctx.runId],
+      );
+      ctx.stats.removed = r.rowCount;
+    } else {
+      ctx.stats.remove_skipped = `only ${seenRows[0].seen} of ${seenRows[0].total} seen`;
+    }
+    await clearSeen(ctx.pool, ctx.runId);
   },
 };

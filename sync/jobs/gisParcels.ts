@@ -153,25 +153,31 @@ export const gisParcelsJob: Job = {
            tax_dist = EXCLUDED.tax_dist, land_use_code = EXCLUDED.land_use_code, bldg_cond = EXCLUDED.bldg_cond,
            bldg_year = EXCLUDED.bldg_year, sales_date = EXCLUDED.sales_date, sales_amt = EXCLUDED.sales_amt,
            loc_num = EXCLUDED.loc_num, loc_street = EXCLUDED.loc_street, acres_gis = EXCLUDED.acres_gis,
-           part_count = EXCLUDED.part_count, row_hash = EXCLUDED.row_hash, last_seen_at = now(), retired_at = NULL`,
+           part_count = EXCLUDED.part_count, row_hash = EXCLUDED.row_hash, last_seen_at = now(), retired_at = NULL
+         -- Unchanged rows aren't rewritten: every rewrite leaves a dead copy behind, and doing that to
+         -- the whole county each night doubled the table on the size-capped database.
+         WHERE t.row_hash IS DISTINCT FROM EXCLUDED.row_hash OR t.retired_at IS NOT NULL`,
         [editedAt],
       );
-      ctx.stats.parcels = up.rowCount;
+      const seen = Number((await c.query("SELECT count(*) n FROM gis_new")).rows[0].n);
+      ctx.stats.parcels = seen;
+      ctx.stats.changed = up.rowCount;
 
       // Guard: a truncated upstream response must not retire most of the county.
       const active = Number(
         (await c.query("SELECT count(*) n FROM data.gis_parcels WHERE retired_at IS NULL")).rows[0].n,
       );
-      if ((up.rowCount ?? 0) >= active * 0.9) {
+      if (seen >= active * 0.9) {
         const r = await c.query(
-          "UPDATE data.gis_parcels SET retired_at = now() WHERE retired_at IS NULL AND last_seen_at < $1",
-          [ctx.startedAt],
+          `UPDATE data.gis_parcels g SET retired_at = now()
+           WHERE g.retired_at IS NULL AND NOT EXISTS (SELECT 1 FROM gis_new n WHERE n.county = g.county AND n.parcel_id = g.parcel_id)`,
         );
         ctx.stats.retired = r.rowCount;
       } else {
-        ctx.stats.retire_skipped = `only ${up.rowCount} of ${active} seen`;
+        ctx.stats.retire_skipped = `only ${seen} of ${active} seen`;
       }
-      await c.query("DELETE FROM data.gis_parcels_stage WHERE run_id = $1", [ctx.runId]);
+      // TRUNCATE (not DELETE) hands the staging table's space back; runs never overlap (one job at a time).
+      await c.query("TRUNCATE data.gis_parcels_stage");
       await ctx.checkpoint(c, { phase: "finalized", lastOid });
     });
   },

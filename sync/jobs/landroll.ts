@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Job } from "../runner";
+import { clearSeen } from "../seen";
 import { tx } from "../runner";
 import { pageQuery, table } from "../bigquery";
 import { COUNTY } from "@/config";
@@ -121,11 +122,17 @@ export const landrollJob: Job = {
           );
         }
         await c.query(
+          `INSERT INTO data.sync_seen (run_id, county, parcel_id) SELECT $1, county, parcel_id FROM lr_page ON CONFLICT DO NOTHING`,
+          [ctx.runId],
+        );
+        // Only rows that changed (or came back) are written; see db/migrations/data/0002_sync_seen.sql.
+        await c.query(
           `INSERT INTO data.landroll_parcels AS t (${COLS.join(", ")}, last_seen_at, retired_at)
            SELECT ${COLS.join(", ")}, now(), NULL FROM lr_page
            ON CONFLICT (county, parcel_id) DO UPDATE SET
            ${COLS.filter((c) => c !== "county" && c !== "parcel_id").map((c) => `${c} = EXCLUDED.${c}`).join(", ")},
-           last_seen_at = now(), retired_at = NULL`,
+           last_seen_at = now(), retired_at = NULL
+           WHERE t.row_hash IS DISTINCT FROM EXCLUDED.row_hash OR t.retired_at IS NOT NULL`,
         );
         await ctx.checkpoint(c, nextCursor, rows.length);
       });
@@ -134,19 +141,22 @@ export const landrollJob: Job = {
 
     // Retire parcels that dropped off the roll, unless this run saw suspiciously few.
     const { rows } = await ctx.pool.query<{ seen: number; active: number }>(
-      `SELECT count(*) FILTER (WHERE last_seen_at >= $1) seen, count(*) FILTER (WHERE retired_at IS NULL) active
-       FROM data.landroll_parcels WHERE county = $2`,
-      [ctx.startedAt, COUNTY],
+      `SELECT (SELECT count(*) FROM data.sync_seen WHERE run_id = $1 AND county = $2)::int seen,
+              (SELECT count(*) FROM data.landroll_parcels WHERE county = $2 AND retired_at IS NULL)::int active`,
+      [ctx.runId, COUNTY],
     );
     ctx.stats.seen = rows[0].seen;
     if (rows[0].seen >= rows[0].active * 0.9) {
       const r = await ctx.pool.query(
-        "UPDATE data.landroll_parcels SET retired_at = now() WHERE county = $1 AND retired_at IS NULL AND last_seen_at < $2",
-        [COUNTY, ctx.startedAt],
+        `UPDATE data.landroll_parcels l SET retired_at = now()
+         WHERE l.county = $1 AND l.retired_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM data.sync_seen s WHERE s.run_id = $2 AND s.county = l.county AND s.parcel_id = l.parcel_id)`,
+        [COUNTY, ctx.runId],
       );
       ctx.stats.retired = r.rowCount;
     } else {
       ctx.stats.retire_skipped = `only ${rows[0].seen} of ${rows[0].active} seen`;
     }
+    await clearSeen(ctx.pool, ctx.runId);
   },
 };
