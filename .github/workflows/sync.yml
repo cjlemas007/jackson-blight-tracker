@@ -4,9 +4,11 @@
 #
 # Repository secrets:
 #   SYNC_DATABASE_URL   Supabase session-pooler URL (port 5432; long transactions need session mode)
-#   GCP_SA_KEY          JSON key for a service account with BigQuery Data Viewer + Job User
 # Repository variables:
 #   BQ_PROJECT, BQ_DATASET
+# Google sign-in is keyless (Workload Identity Federation): pool "github", provider "blight-tracker" in
+# wlbt-projects accepts only this repository's main branch, which may act as the read-only service
+# account blight-tracker-sync (BigQuery Job User on the project, Reader on property_tax only).
 name: Nightly sync
 
 on:
@@ -18,6 +20,10 @@ on:
         description: "Jobs to run (blank = all; see npm run sync -- --list)"
         required: false
         default: ""
+
+permissions:
+  contents: read
+  id-token: write # lets google-github-actions/auth sign in without a stored key
 
 concurrency:
   group: nightly-sync
@@ -36,7 +42,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: projects/720106624916/locations/global/workloadIdentityPools/github/providers/blight-tracker
+          service_account: blight-tracker-sync@wlbt-projects.iam.gserviceaccount.com
       - name: Sync
         run: npm run sync -- $SYNC_JOBS
         env:
