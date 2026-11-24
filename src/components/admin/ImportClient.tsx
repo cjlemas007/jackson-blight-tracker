@@ -163,7 +163,8 @@ function ParcelSearch({ onPick }: { onPick: (id: string) => void }) {
 
 function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () => void }) {
   const [error, setError] = useState<string | null>(null);
-  const editable = batch.status === "review";
+  const setAside = r.apply_result?.startsWith("set_aside:") ? r.apply_result.slice(10) : null;
+  const editable = batch.status === "review" && !setAside;
   const update = async (body: Record<string, unknown>) => {
     setError(null);
     try {
@@ -231,7 +232,9 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
         </td>
       )}
       <td className="small">
-        {editable ? (
+        {setAside ? (
+          <>Set aside: <a href={`/admin/imports/${setAside}`}>decide it in the set-aside import</a></>
+        ) : editable ? (
           <div className="row" style={{ gap: 4 }}>
             <button type="button" className={`btn ${r.decision === "accepted" ? "ok" : "secondary"}`} style={{ padding: "4px 8px", fontSize: 12 }}
               disabled={!r.match_parcel_id} onClick={() => update({ decision: "accepted" })}>Accept</button>
@@ -313,6 +316,20 @@ export default function ImportClient({ batch }: { batch: Batch }) {
                 : casesOnly ? `Record (links ${skipped} case number${skipped === 1 ? "" : "s"}, changes no statuses)`
                 : `Record ${accepted} row${accepted === 1 ? "" : "s"}`}
             </button>
+            {pending > 0 && accepted > 0 && (
+              <button className="btn secondary" disabled={busy} onClick={async () => {
+                if (!confirm(`Move the ${pending} undecided row${pending > 1 ? "s" : ""} to a separate import you can finish later, so you can record the rest now?`)) return;
+                setBusy(true);
+                setError(null);
+                try {
+                  await post(`/api/admin/imports/${batch.id}/set-aside`, {});
+                  window.location.reload();
+                } catch (e) {
+                  setError((e as Error).message);
+                  setBusy(false);
+                }
+              }}>Set aside {pending} undecided row{pending > 1 ? "s" : ""}</button>
+            )}
             <button className="btn secondary" disabled={busy} onClick={async () => {
               if (!confirm("Discard this import? Nothing from it will be recorded.")) return;
               await post(`/api/admin/imports/${batch.id}/discard`, {});

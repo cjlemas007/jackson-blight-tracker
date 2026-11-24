@@ -516,11 +516,12 @@ export async function updateRow(
   requireAdmin(staff);
   if (!["accepted", "skipped", "pending", "waiting_case"].includes(input.decision)) throw new WorkflowError("Unknown decision.");
   await tx(async (c) => {
-    const { rows } = await c.query<{ batch_id: string; match_parcel_id: string | null; input_case_no: string | null }>(
-      "SELECT batch_id, match_parcel_id, input_case_no FROM app.import_rows WHERE id = $1",
+    const { rows } = await c.query<{ batch_id: string; match_parcel_id: string | null; input_case_no: string | null; apply_result: string | null }>(
+      "SELECT batch_id, match_parcel_id, input_case_no, apply_result FROM app.import_rows WHERE id = $1",
       [rowId],
     );
     if (!rows[0]) throw new WorkflowError("Row not found.", 404);
+    if (rows[0].apply_result?.startsWith("set_aside:")) throw new WorkflowError("This row was set aside: decide it in the set-aside import.");
     const b = await lockBatch(c, rows[0].batch_id);
     if (b.status !== "review") throw new WorkflowError("This import isn't open for review.");
     let parcel = rows[0].match_parcel_id;
@@ -604,6 +605,45 @@ export async function applyBatch(staff: Staff, batchId: string) {
     const followUps = await resolveWaitingCases(c, staff);
     await audit(c, staff.id, "import.apply", "import", batchId, { ...applied, learnedCases: learned, followUps: followUps.length });
     return { ...applied, learnedCases: learned, followUps };
+  });
+}
+
+/**
+ * Moves a batch's undecided rows into a new review batch (same kind, action, date, source and
+ * document) so the rest can be recorded now and those decided later. The originals stay in the
+ * batch as skipped, pointing at the new one. Returns the new batch id, or null when nothing is undecided.
+ */
+export async function setAsidePending(staff: Staff, batchId: string): Promise<string | null> {
+  requireAdmin(staff);
+  return tx(async (c) => {
+    const b = await lockBatch(c, batchId);
+    if (b.status !== "review") throw new WorkflowError("This import isn't open for review.");
+    const { rows: pending } = await c.query<{ id: number; matched: boolean }>(
+      `SELECT id, (match_parcel_id IS NOT NULL OR jsonb_array_length(candidates) > 0) AS matched
+       FROM app.import_rows WHERE batch_id = $1 AND decision = 'pending' ORDER BY row_num`,
+      [batchId],
+    );
+    if (!pending.length) return null;
+    const review = pending.filter((r) => r.matched).length;
+    const { rows: nb } = await c.query<{ id: string }>(
+      `INSERT INTO app.import_batches (kind, title, document_id, headers, mapping, default_date, event_status, event_substatus, source, created_by, status, stats)
+       SELECT kind, left(title || ' (set aside to decide)', 300), document_id, headers, mapping, default_date, event_status, event_substatus, source, $2, 'review',
+              jsonb_build_object('accepted', 0, 'review', $3::int, 'unmatched', $4::int, 'waiting', 0, 'setAsideFrom', id)
+       FROM app.import_batches WHERE id = $1 RETURNING id`,
+      [batchId, staff.id, review, pending.length - review],
+    );
+    const newId = nb[0].id;
+    await c.query(
+      `INSERT INTO app.import_rows (batch_id, row_num, raw, input_parcel_id, input_address, input_case_no, agenda_item, event_date, event_substatus, note,
+                                    match_county, match_parcel_id, match_method, match_score, candidates, decision)
+       SELECT $1, row_number() OVER (ORDER BY r.row_num), r.raw, r.input_parcel_id, r.input_address, r.input_case_no, r.agenda_item, r.event_date,
+              r.event_substatus, r.note, r.match_county, r.match_parcel_id, r.match_method, r.match_score, r.candidates, 'pending'
+       FROM app.import_rows r WHERE r.id = ANY($2)`,
+      [newId, pending.map((r) => r.id)],
+    );
+    await c.query("UPDATE app.import_rows SET decision = 'skipped', apply_result = $2 WHERE id = ANY($1)", [pending.map((r) => r.id), `set_aside:${newId}`]);
+    await audit(c, staff.id, "import.set_aside", "import", newId, { from: batchId, rows: pending.length });
+    return newId;
   });
 }
 

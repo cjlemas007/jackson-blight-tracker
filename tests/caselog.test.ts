@@ -4,7 +4,7 @@ import { freshTestDb } from "./helpers/testdb";
 import { getPool } from "@/lib/db";
 import { createStaff, type Staff } from "@/lib/auth/staff";
 import { caseLogAddress, cellDate, planCaseLog, readCaseLog } from "@/lib/caseLog";
-import { applyBatch, batchDetail, createAgendaBatch, createCaseLogBatch } from "@/lib/imports";
+import { applyBatch, batchDetail, createAgendaBatch, createCaseLogBatch, setAsidePending, updateRow } from "@/lib/imports";
 
 const HEADER = ["Record #", "Date Submitted", "Address", "Record Status", "Case Category", "Mbl", "Council RESOLUTION: Property Adjudicated A Menace"];
 const d = (s: string) => new Date(`${s}T00:00:00Z`);
@@ -175,6 +175,37 @@ describe("importing a case log", () => {
     const d = (await batchDetail(b))!;
     expect(d.stats).toMatchObject({ unmatched: 1, waiting: 0 });
     expect(d.rows[0].decision).toBe("pending");
+  });
+
+  it("sets undecided rows aside in their own import so the rest can be recorded now", async () => {
+    const b = await createCaseLogBatch(admin, {
+      title: "Case log: mixed",
+      entries: [
+        { caseNo: "26-1", parcelId: "500-2", date: "2026-01-05", substatus: "cited", note: "CE-26-1, Board-up" },
+        { caseNo: "26-2", parcelId: "888-8", address: null, date: "2026-01-06", substatus: "cited", note: "CE-26-2, Demolition" },
+      ],
+    });
+    await expect(applyBatch(admin, b)).rejects.toThrow(/1 row\(s\) still need a decision/);
+    const asideId = (await setAsidePending(admin, b))!;
+    expect(await setAsidePending(admin, b)).toBeNull(); // nothing left to set aside
+
+    const orig = (await batchDetail(b))!.rows as { id: number; input_case_no: string; decision: string; apply_result: string | null }[];
+    const moved = orig.find((r) => r.input_case_no === "26-2")!;
+    expect(moved).toMatchObject({ decision: "skipped", apply_result: `set_aside:${asideId}` });
+    await expect(updateRow(admin, moved.id, { decision: "accepted", parcelId: "500-3" })).rejects.toThrow(/set aside/);
+
+    expect(await applyBatch(admin, b)).toMatchObject({ events: 1, skipped: 1 });
+    expect((await batchDetail(b))!.rows.find((r: { input_case_no: string }) => r.input_case_no === "26-2").apply_result).toBe(`set_aside:${asideId}`);
+
+    const aside = (await batchDetail(asideId))!;
+    expect(aside).toMatchObject({ status: "review", kind: "code_enforcement", title: "Case log: mixed (set aside to decide)" });
+    expect(aside.stats).toMatchObject({ unmatched: 1, setAsideFrom: b });
+    expect(aside.rows).toHaveLength(1);
+    expect(aside.rows[0]).toMatchObject({ input_case_no: "26-2", decision: "pending", note: "CE-26-2, Demolition" });
+    expect(String(aside.rows[0].event_date).slice(0, 10)).toBe("2026-01-06");
+    // Deciding it there records it like any other row.
+    await updateRow(admin, aside.rows[0].id, { parcelId: "500-3", decision: "accepted" });
+    expect(await applyBatch(admin, asideId)).toMatchObject({ events: 1, learnedCases: 1 });
   });
 
   it("validates entries", async () => {
