@@ -46,7 +46,7 @@ export default async function AdminQueue({ searchParams }: { searchParams: Promi
                     <td>{r.submitted_at ? new Date(r.submitted_at).toLocaleString("en-US", { timeZone: "America/Chicago", dateStyle: "short", timeStyle: "short" }) : "—"}</td>
                     <td>
                       <Link href={`/admin/submissions/${r.id}`}><strong>{r.situs_address ?? r.parcel_id}</strong></Link>
-                      <div className="muted small">{r.parcel_id} · {r.owner_name}</div>
+                      <div className="muted small">{r.parcel_id} · {r.owner_name ?? "Owner unknown"}</div>
                     </td>
                     <td>{r.kind === "follow_up" ? "Follow-up" : "New report"}</td>
                     <td>{r.photo_count}</td>

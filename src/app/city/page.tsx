@@ -91,7 +91,7 @@ export default async function CityPage({ searchParams }: { searchParams: Promise
                   {waiting.map((w) => (
                     <tr key={w.parcel_id}>
                       <td><a href={`/?parcel=${encodeURIComponent(w.parcel_id)}`}>{w.situs_address ?? w.parcel_id}</a></td>
-                      <td className="small hide-sm"><Link href={`/owners/${encodeURIComponent(w.portfolio_id)}`}>{w.owner_name}</Link></td>
+                      <td className="small hide-sm">{w.portfolio_id ? <Link href={`/owners/${encodeURIComponent(w.portfolio_id)}`}>{w.owner_name}</Link> : "Owner unknown"}</td>
                       <td className="hide-sm">{w.ward ?? "—"}</td>
                       <td className="small nowrap">{w.verified_on}</td>
                       <td className="num nowrap"><strong>{w.days_waiting}</strong> days</td>

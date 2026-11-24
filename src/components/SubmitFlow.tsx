@@ -237,7 +237,7 @@ export default function SubmitFlow({
             <div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{parcel.situs_address ?? "No street address"}</div>
               <div className="muted">
-                Parcel {parcel.parcel_id} · {parcel.owner_name ?? "owner unknown"}
+                Parcel {parcel.parcel_id} · {parcel.owner_name ?? "Owner unknown"}
               </div>
               <div className="muted small">{STATUS_TEXT[parcel.status] ?? parcel.status}</div>
             </div>
@@ -278,7 +278,7 @@ export default function SubmitFlow({
                       <strong>{h.situs_address ?? "No street address"}</strong>
                       {h.distance_m !== undefined && <span className="muted"> · {h.distance_m} m away</span>}
                       <div className="muted small">
-                        Parcel {h.parcel_id} · {h.owner_name}
+                        Parcel {h.parcel_id} · {h.owner_name ?? "Owner unknown"}
                       </div>
                     </button>
                   </li>

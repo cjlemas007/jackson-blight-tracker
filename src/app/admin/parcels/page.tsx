@@ -25,7 +25,7 @@ export default async function ParcelSearchPage({ searchParams }: { searchParams:
               <li key={h.parcel_id}>
                 <Link href={`/admin/parcels/${encodeURIComponent(h.parcel_id)}`} style={{ display: "block", padding: "10px 12px", color: "inherit", textDecoration: "none", borderBottom: "1px solid var(--line)" }}>
                   <strong>{h.situs_address ?? "No address"}</strong>
-                  <div className="muted small">{h.parcel_id} · {h.owner_name}</div>
+                  <div className="muted small">{h.parcel_id} · {h.owner_name ?? "Owner unknown"}</div>
                 </Link>
               </li>
             ))}

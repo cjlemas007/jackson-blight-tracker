@@ -1,4 +1,5 @@
 import "server-only";
+import { canonicalParcelId } from "./normalize/parcel";
 import { query } from "./db";
 import { publicPhotos } from "./submissions";
 
@@ -186,7 +187,7 @@ export async function searchParcels(q: string): Promise<ParcelHit[]> {
      )
      ORDER BY (p.situs_address LIKE $4 || '%') DESC, p.situs_address
      LIMIT 12`,
-    [looksLikeId ? s : null, m ? Number(m[1]) : null, m ? m[2] : null, s],
+    [looksLikeId ? (/-\d/.test(s) ? canonicalParcelId(s) : s) : null, m ? Number(m[1]) : null, m ? m[2] : null, s],
   );
 }
 

@@ -75,7 +75,7 @@ export interface OwnerRow {
  */
 export async function ownerRankings(tab: OwnerTab, limit = 100): Promise<OwnerRow[]> {
   const { rows } = await getPool().query<OwnerRow>(
-    `WITH b AS (SELECT * FROM app.ranking_base(${today}, $1) WHERE owner_type = ANY($2)),
+    `WITH b AS (SELECT * FROM app.ranking_base(${today}, $1) WHERE owner_type = ANY($2) AND portfolio_id IS NOT NULL), -- owner unknown: not an owner
      g AS (
        SELECT portfolio_id,
               count(*)::int AS total_parcels,

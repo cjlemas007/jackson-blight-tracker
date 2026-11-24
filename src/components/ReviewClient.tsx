@@ -201,7 +201,7 @@ export default function ReviewClient({
             <section className="card">
               <h2>Land roll</h2>
               <dl className="kv">
-                <dt>Owner</dt><dd>{p.owner_name ?? "—"}{p.attributed_owner ? ` (${p.attributed_owner})` : ""}</dd>
+                <dt>Owner</dt><dd>{p.owner_name ?? "Unknown"}{p.attributed_owner ? ` (${p.attributed_owner})` : ""}</dd>
                 <dt>Source</dt><dd>{p.owner_source === "land_roll" ? "Land roll" : "Parcel map"}, as of {p.owner_as_of ?? "—"}</dd>
                 <dt>Appraised</dt><dd>{usd(p.appraised_total)}</dd>
                 <dt>Improvements</dt><dd>{usd(p.tv_imp)}</dd>
@@ -289,7 +289,7 @@ export default function ReviewClient({
                           }}
                         >
                           <strong>{h.situs_address ?? "No address"}</strong>
-                          <div className="muted small">{h.parcel_id} · {h.owner_name}</div>
+                          <div className="muted small">{h.parcel_id} · {h.owner_name ?? "Owner unknown"}</div>
                         </button>
                       </li>
                     ))}

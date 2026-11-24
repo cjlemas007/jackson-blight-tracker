@@ -50,7 +50,7 @@ export default async function VerifyPage({ searchParams }: { searchParams: Promi
                   <tr key={r.parcel_id}>
                     <td>
                       <strong>{r.situs_address ?? r.parcel_id}</strong>
-                      <div className="muted small">{r.parcel_id} · {r.owner_name}</div>
+                      <div className="muted small">{r.parcel_id} · {r.owner_name ?? "Owner unknown"}</div>
                     </td>
                     <td>{STAGE[r.substatus] ?? r.substatus}</td>
                     <td className="small">{r.since}</td>

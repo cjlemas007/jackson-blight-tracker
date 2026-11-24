@@ -1,10 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type pg from "pg";
 import { freshTestDb } from "./helpers/testdb";
+import { normalizeGisAttrs } from "../sync/jobs/gisParcels";
+import { canonicalParcelId } from "@/lib/normalize/parcel";
 
 /**
- * Which parcels count. Land roll parcels always do; parcel-map-only parcels (often tax-exempt) count
- * unless they are the same property already on the roll under another ID, or have no owner of record.
+ * Which parcels count. Land roll parcels always do; so does every parcel-map parcel (often tax-exempt,
+ * sometimes with no owner of record at all) unless it is the same property already on the roll under
+ * another ID, or a placeholder on map number 0.
  */
 let pool: pg.Pool;
 let universe: Record<string, string>;
@@ -35,7 +38,8 @@ beforeAll(async () => {
   await map("200-5", "FOUNDATION INC", "private", 2); // ID is the prefix of a roll parcel, but a separate property: count
   await map("300-7", "CITY OF JACKSON", "city", 3); // exempt public land, only on the map: count
   await map("400-2", "LEFLORE L E & DORETHA M", "private", 4); // taxable home the scrape missed: count
-  await map("500-9", null, "private", 5); // no attributes at all: skip
+  await map("500-9", null, "private", 5); // no owner, address or value on record: count, owner unknown
+  await map("00-3", null, "private", 8); // placeholder on map 0: skip
   await map("600-3", "MEDICAL MALL FOUNDATION", "public", 6, 600); // locates a lessee's roll parcel next door: count
   await roll("600-3-X", "LESSEE LLC", 0);
   await map("700-4", "BAPTIST MEDICAL CENTER", "private", 7, 1225); // same owner and number as the roll parcel it locates: skip
@@ -76,8 +80,22 @@ describe("parcel universe", () => {
     expect(universe["700-4-1"]).toBe("land_roll");
   });
 
-  it("skips shapes with no owner of record", () => {
-    expect(universe["500-9"]).toBeUndefined();
+  it("counts shapes with no owner of record, as owner unknown, and skips map-0 placeholders", async () => {
+    expect(universe["500-9"]).toBe("parcel_map");
+    expect(universe["00-3"]).toBeUndefined();
+    const { rows } = await pool.query("SELECT owner_name, portfolio_id, on_tax_roll FROM app.parcel_facts WHERE parcel_id = '500-9'");
+    expect(rows[0]).toEqual({ owner_name: null, portfolio_id: null, on_tax_roll: false });
+  });
+
+  it("reads the parcel map's padded IDs the way the land roll writes them", () => {
+    expect(canonicalParcelId("59-10-010")).toBe("59-10-10");
+    expect(canonicalParcelId("161-37-022")).toBe("161-37-22");
+    expect(canonicalParcelId("0059-10")).toBe("59-10");
+    expect(canonicalParcelId(" 4854 104-6 ")).toBe("4854104-6");
+    expect(canonicalParcelId("170-98")).toBe("170-98");
+    expect(canonicalParcelId("4964-601-2A")).toBe("4964-601-2A");
+    expect(canonicalParcelId("  ")).toBeNull();
+    expect(normalizeGisAttrs({ PARCEL_F: "59-10-010 " }).parcel_id).toBe("59-10-10");
   });
 
   it("treats parcel-map-only tax status as unknown, not paid", async () => {
@@ -105,6 +123,7 @@ describe("parcel universe", () => {
       { parcel_id: "200-5-1", source: "land_roll" },
       { parcel_id: "300-7", source: "parcel_map" },
       { parcel_id: "400-2", source: "parcel_map" },
+      { parcel_id: "500-9", source: "parcel_map" },
       { parcel_id: "600-3", source: "parcel_map" },
       { parcel_id: "600-3-X", source: "land_roll" },
       { parcel_id: "700-4-1", source: "land_roll" },

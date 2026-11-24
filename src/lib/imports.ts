@@ -17,6 +17,7 @@ import { cleanText, parseSitus } from "./normalize/address";
 import { storage } from "./storage";
 import { normalizeCaseNo } from "./agendaPdf";
 import type { CaseLogEntry } from "./caseLog";
+import { canonicalParcelId } from "./normalize/parcel";
 
 export type ImportKind = "demolition_list" | "code_enforcement" | "council_agenda" | "sos_forfeited";
 
@@ -62,10 +63,9 @@ export function parseLooseDate(v: string | null | undefined): string | null {
   return dt.toISOString().slice(0, 10);
 }
 
-/** Uppercase, no spaces: "4854 104-6 " -> "4854-104-6". */
+/** Uppercase, no spaces, no zero padding: "59-10-010" -> "59-10-10" (see canonicalParcelId). */
 export function normalizeParcelInput(v: string | null | undefined): string | null {
-  const s = (v ?? "").toUpperCase().replace(/\s+/g, "").replace(/^0+(?=\d)/, "");
-  return s || null;
+  return canonicalParcelId(v);
 }
 
 /** Only letters and digits, for matching records that drop the dashes: "4854-104-6" -> "48541046". */

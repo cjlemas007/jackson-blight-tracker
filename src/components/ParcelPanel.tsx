@@ -106,7 +106,7 @@ export default function ParcelPanel({ county, parcelId, onClose }: { county: str
   return (
     <section className="panel" aria-label="Parcel details">
       <header>
-        <h3>{data?.situs_address ?? (error ? "Parcel" : "Loading…")}</h3>
+        <h3>{data ? (data.situs_address ?? "No street address on record") : error ? "Parcel" : "Loading…"}</h3>
         <div className="pid">Parcel {parcelId} · Hinds County</div>
         <button className="close" onClick={onClose} aria-label="Close">×</button>
       </header>
@@ -148,10 +148,10 @@ export default function ParcelPanel({ county, parcelId, onClose }: { county: str
               <h4>Owner of record</h4>
               <dl className="dl">
                 <dt>Owner</dt>
-                <dd>{data.owner_name ?? "—"}</dd>
+                <dd>{data.owner_name ?? "Unknown: not in the County's records"}</dd>
                 <dt>Type</dt>
                 <dd>
-                  {OWNER_TYPE[data.owner_type] ?? data.owner_type}
+                  {data.owner_name ? (OWNER_TYPE[data.owner_type] ?? data.owner_type) : "Unknown"}
                   {data.owner_estate_heirs && " · estate/heirs"}
                   {data.homestead && " · homestead exemption"}
                   {data.state_list_date && <div className="flag">On the Secretary of State&apos;s tax-forfeited list ({data.state_list_date})</div>}

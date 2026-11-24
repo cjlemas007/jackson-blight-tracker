@@ -189,7 +189,7 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
           <>
             <strong>{r.match_address ?? "No address"}</strong> · {r.match_parcel_id}
             <div className="muted">
-              {r.match_owner} · {METHOD[r.match_method ?? ""] ?? r.match_method}
+              {r.match_owner ?? "Owner unknown"} · {METHOD[r.match_method ?? ""] ?? r.match_method}
               {r.match_method === "address_fuzzy" && r.match_score !== null && ` (${Math.round(r.match_score * 100)}% similar)`}
               {r.match_in_city === false && " · outside city limits"}
             </div>

@@ -19,7 +19,7 @@ export default async function ParcelAdminPage({ params }: { params: Promise<{ id
         <Link href="/admin/parcels" className="muted small">← Parcels</Link>
         <h1>{p.situs_address ?? id}</h1>
         <div className="muted">
-          Parcel {id} · {p.owner_name} · Ward {p.ward ?? "—"} · <a href={`/?parcel=${encodeURIComponent(id)}`}>map</a> ·{" "}
+          Parcel {id} · {p.owner_name ?? "Owner unknown"} · Ward {p.ward ?? "—"} · <a href={`/?parcel=${encodeURIComponent(id)}`}>map</a> ·{" "}
           <a href={`/owners/${encodeURIComponent(p.portfolio_id)}`}>owner</a>
           {p.on_state_list && ` · on the SOS tax-forfeited list (${p.state_list_date})`}
         </div>

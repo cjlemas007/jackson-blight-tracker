@@ -91,7 +91,7 @@ export default function SurveyRun({ surveyId, finished }: { surveyId: string; fi
             {p.distance_m !== null && <span className="muted small">{p.distance_m} m</span>}
           </div>
           <div className="muted small">
-            {p.parcel_id} · {p.owner_name}
+            {p.parcel_id} · {p.owner_name ?? "Owner unknown"}
             {STATUS[p.status] && ` · ${STATUS[p.status]}`}
             {p.last_surveyed_on && ` · surveyed ${p.last_surveyed_on}`}
             {p.submission_open && " · photo in review"}
