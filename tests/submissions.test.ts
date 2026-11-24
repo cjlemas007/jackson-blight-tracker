@@ -31,7 +31,7 @@ let other: Staff;
 let admin: Staff;
 
 // Parcel A..E inside the test city; Z outside it. Each is a ~10m square; A's center is the reference point.
-const PARCELS: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, Z: 50 };
+const PARCELS: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, Z: 50 };
 const lonOf = (i: number) => -90.2 + i * 0.001;
 
 const OK: SubmitInput = { conditions: ["vacant_open"], vantageConfirmed: true };
@@ -240,11 +240,14 @@ describe("City-flagged parcels", () => {
     );
 
   it("lists them for staff, strongest City findings first, and counts them separately", async () => {
+    const before = await headline();
     await cite("F", "cited", "2026-09-01");
-    await cite("G", "demolition_ordered", "2026-10-01");
-    expect((await needsNewsroomCheck()).map((r) => [r.parcel_id, r.substatus])).toEqual([["G", "demolition_ordered"], ["F", "cited"]]);
+    await cite("G", "lien_filed", "2026-10-01");
+    await cite("H", "demolition_ordered", "2026-10-05"); // a council finding: counts as blight, not City-flagged
+    expect((await needsNewsroomCheck()).map((r) => [r.parcel_id, r.substatus])).toEqual([["G", "lien_filed"], ["F", "cited"]]);
     const h = await headline();
-    expect(h.city_flagged).toBe(2);
+    expect(h.city_flagged).toBe(before.city_flagged + 2);
+    expect(h.blighted).toBe(before.blighted + 1); // H
   });
 
   it("a staff photo verifies a flagged parcel without hiding the City action", async () => {

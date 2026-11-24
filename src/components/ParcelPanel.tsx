@@ -46,6 +46,7 @@ interface Parcel {
   status: string;
   substatus: string | null;
   status_since: string | null;
+  council_found_on: string | null;
   owner_as_of: string | null;
   state_list_date: string | null;
   history: HistoryItem[];
@@ -121,6 +122,11 @@ export default function ParcelPanel({ county, parcelId, onClose }: { county: str
                 {data.substatus && ` · ${SUB[data.substatus] ?? data.substatus}`}
               </span>
               {data.status_since && <span className="flag"> since {data.status_since}</span>}
+              {data.council_found_on && (
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  Counted as blighted: the City Council declared this property a menace on {data.council_found_on}.
+                </div>
+              )}
             </div>
 
             <div className="section">

@@ -65,7 +65,7 @@ export async function surveyParcels(
      )
      SELECT p.parcel_id, p.situs_address, p.situs_number, p.street_name, p.owner_name,
             CASE WHEN p.status = 'submitted' THEN 'unreported'
-                 WHEN p.status = 'city_action' AND NOT p.ever_verified THEN 'city_flagged' ELSE p.status::text END AS status,
+                 WHEN p.status = 'city_action' AND NOT p.ever_verified AND p.council_found_on IS NULL THEN 'city_flagged' ELSE p.status::text END AS status,
             m.result AS mark, m.recorded_at AS marked_at,
             (SELECT max(surveyed_on)::text FROM app.parcel_surveys ps WHERE ps.county = p.county AND ps.parcel_id = p.parcel_id
                AND ps.surveyed_on > ${today} - $5::int) AS last_surveyed_on,

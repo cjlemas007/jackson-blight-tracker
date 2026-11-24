@@ -29,7 +29,7 @@ export default async function AreasPage({ searchParams }: { searchParams: Promis
         <PageHead
           kicker="Wards & neighborhoods"
           title="Where blight is concentrated"
-          dek="Verified blighted parcels by council ward, neighborhood and census tract, and how each has changed over the last 30 and 90 days."
+          dek="Blighted parcels by council ward, neighborhood and census tract, and how each has changed over the last 30 and 90 days."
         />
         <HeadlineCounters h={h} />
         <div className="row" style={{ justifyContent: "space-between" }}>

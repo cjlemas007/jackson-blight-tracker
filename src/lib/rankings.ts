@@ -26,7 +26,7 @@ export interface Headline {
   state_owned_blighted: number;
   demolished_this_week: number;
   resolved_to_date: number;
-  city_flagged: number; // City acted, newsroom hasn't verified: shown separately, never counted as blighted
+  city_flagged: number; // City acted, no newsroom verification or council finding: shown separately, never counted as blighted
   week_start: string;
 }
 
@@ -111,6 +111,7 @@ export async function ownerDetail(portfolioId: string) {
             f.delinquent, f.ward, f.owner_source,
             CASE WHEN s.status = 'city_action' AND NOT EXISTS (
                    SELECT 1 FROM app.status_events_live v WHERE v.county = f.county AND v.parcel_id = f.parcel_id AND v.status = 'verified_blighted')
+                   AND NOT EXISTS (SELECT 1 FROM app.council_found_as_of(${today}) c WHERE c.county = f.county AND c.parcel_id = f.parcel_id)
                  THEN 'city_flagged' ELSE COALESCE(s.status::text, 'unreported') END AS status,
             s.substatus, s.status_since::text,
             sv.surveyed_on::text

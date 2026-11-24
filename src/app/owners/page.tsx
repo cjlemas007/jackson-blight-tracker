@@ -38,7 +38,7 @@ export default async function OwnersPage({ searchParams }: { searchParams: Promi
           they still count in street and area totals.
         </p>
         {rows.length === 0 ? (
-          <div className="card muted">No verified blighted parcels for this group yet.</div>
+          <div className="card muted">No blighted parcels for this group yet.</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table className="table">

@@ -45,7 +45,7 @@ export default async function EmbedChart({ searchParams }: { searchParams: Promi
   const rows = (await areaRankings(kind)).slice(0, top);
   const label = kind === "ward" ? "ward" : kind === "neighborhood" ? "neighborhood" : "census tract";
   return (
-    <EmbedFrame title={title ?? `Verified blighted parcels by ${label}`} link={`/areas?kind=${kind}`}>
+    <EmbedFrame title={title ?? `Blighted parcels by ${label}`} link={`/areas?kind=${kind}`}>
       <HBarChart
         rows={rows.map((r) => ({ label: r.name, value: r.blighted }))}
         note={(i) => (rows[i].fully_surveyed ? `${(rows[i].share_blighted * 100).toFixed(1)}% of parcels` : "reported so far")}

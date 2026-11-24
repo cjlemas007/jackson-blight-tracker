@@ -46,7 +46,7 @@ export default async function SubmitPage({
     const rows = await query<{ parcel_id: string; situs_address: string | null; owner_name: string | null; status: string }>(
       `SELECT parcel_id, situs_address, owner_name,
               CASE WHEN status = 'submitted' THEN 'unreported'
-                   WHEN status = 'city_action' AND NOT ever_verified THEN 'city_flagged' ELSE status::text END AS status
+                   WHEN status = 'city_action' AND NOT ever_verified AND council_found_on IS NULL THEN 'city_flagged' ELSE status::text END AS status
        FROM app.parcels WHERE county = 'Hinds' AND parcel_id = $1 AND in_city`,
       [parcel],
     );

@@ -186,16 +186,18 @@ describe("Secretary of State tax-forfeited list", () => {
   });
 });
 
-describe("blight counts need newsroom verification", () => {
-  it("doesn't count a parcel the City cited but the newsroom never verified", async () => {
-    // 200-2 has only a city lien (from the import above), 4854-104-6 only council action.
+describe("what counts as blight", () => {
+  it("counts a newsroom verification or a council menace finding, not a City lien or citation alone", async () => {
+    // 200-2 has only a city lien (from the import above); 4854-104-6 and 300-1 were adjudicated by the council.
     const h = await headline();
-    expect(h.blighted).toBe(0);
-    expect((await cityResponse()).city_only).toBe(3); // 200-2, 4854-104-6, 300-1
+    expect(h.blighted).toBe(2);
+    expect(h.city_flagged).toBe(1);
+    expect((await cityResponse()).city_only).toBe(1); // 200-2
     await ev("4854-104-6", "verified_blighted", null, daysAgo(30));
-    // Verified before the council acted (9 days ago): now it counts.
-    expect((await headline()).blighted).toBe(1);
+    // Verified before the council acted (9 days ago): still one parcel, counted once.
+    expect((await headline()).blighted).toBe(2);
   });
+
 });
 
 describe("manual entry and voids", () => {
@@ -259,5 +261,16 @@ describe("City response figures", () => {
     // 400-2 verified 200 days ago with no City action (its ownership changed, but that's not an action).
     const waiting = await waitingOnCity(90);
     expect(waiting.map((w) => [w.parcel_id, w.days_waiting])).toEqual([["400-2", 200]]);
+  });
+});
+
+// Runs last: it resolves 300-1, which the figures above still count as adjudicated.
+describe("council findings after a resolution", () => {
+  it("stops counting a council finding once the property is resolved", async () => {
+    const before = (await headline()).blighted;
+    await ev("300-1", "resolved", "demolished", daysAgo(1));
+    expect((await headline()).blighted).toBe(before - 1);
+    const p = (await pool.query("SELECT council_found_on FROM app.parcels WHERE parcel_id = '300-1'")).rows[0];
+    expect(p.council_found_on).toBeNull();
   });
 });

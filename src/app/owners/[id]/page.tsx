@@ -37,7 +37,7 @@ export default async function OwnerPage({ params }: { params: Promise<{ id: stri
           title={title}
         />
         <div className="counters">
-          <div className="counter"><div className="n">{blighted.length}</div><div className="l">verified blighted</div></div>
+          <div className="counter"><div className="n">{blighted.length}</div><div className="l">blighted</div></div>
           <div className="counter"><div className="n">{d.parcels.length}</div><div className="l">parcels in Jackson</div></div>
           <div className="counter"><div className="n">{usd(due)}</div><div className="l">unpaid current taxes</div></div>
         </div>

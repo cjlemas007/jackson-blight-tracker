@@ -30,7 +30,7 @@ export async function buildExport(name: ExportName, p: URLSearchParams): Promise
       const rows = await ownerRankings(tab, 5000);
       return {
         filename: `owners-${tab}-${day()}.csv`,
-        header: ["rank", "owner", "portfolio_id", "verified_blighted", "blighted_excluded_homestead_estate", "city_flagged",
+        header: ["rank", "owner", "portfolio_id", "blighted", "blighted_excluded_homestead_estate", "city_flagged",
           "parcels_in_jackson", "share_blighted_pct", "unpaid_current_taxes", "parcels_surveyed"],
         rows: rows.map((r, i) => [i + 1, r.name, r.portfolio_id, r.blighted, r.blighted_excluded, r.city_flagged, r.total_parcels,
           pct(r.share_blighted), r.taxes_owed.toFixed(2), r.surveyed]),
@@ -57,7 +57,7 @@ export async function buildExport(name: ExportName, p: URLSearchParams): Promise
       const rows = await streetRankings({ sort, minParcels: min, surveyedOnly, limit: 5000 });
       return {
         filename: `streets-${day()}.csv`,
-        header: ["rank", "street", "verified_blighted", "city_flagged", "parcels", "share_blighted_pct", "share_label",
+        header: ["rank", "street", "blighted", "city_flagged", "parcels", "share_blighted_pct", "share_label",
           "parcels_surveyed", "fully_surveyed"],
         rows: rows.map((r, i) => [i + 1, r.street_name, r.blighted, r.city_flagged, r.total_parcels, pct(r.share_blighted),
           blightRateLabel(r.blighted, r.total_parcels, r.surveyed), r.surveyed, r.fully_surveyed ? "yes" : "no"]),
@@ -68,7 +68,7 @@ export async function buildExport(name: ExportName, p: URLSearchParams): Promise
       const rows = await areaRankings(kind, p.get("coverage") === "surveyed");
       return {
         filename: `areas-${kind}-${day()}.csv`,
-        header: [kind, "code", "verified_blighted", "city_flagged", "parcels", "share_blighted_pct", "share_label",
+        header: [kind, "code", "blighted", "city_flagged", "parcels", "share_blighted_pct", "share_label",
           "change_30_days", "change_90_days", "parcels_surveyed", "fully_surveyed", "unofficial_boundary"],
         rows: rows.map((r) => [r.name, r.code, r.blighted, r.city_flagged, r.total_parcels, pct(r.share_blighted),
           blightRateLabel(r.blighted, r.total_parcels, r.surveyed), r.blighted - r.blighted_30d_ago, r.blighted - r.blighted_90d_ago,

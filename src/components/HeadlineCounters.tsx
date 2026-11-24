@@ -5,12 +5,12 @@ import { blightRateLabel, coverageLabel } from "@/lib/coverage";
 export default function HeadlineCounters({ h, compact = false }: { h: Headline; compact?: boolean }) {
   const rate = blightRateLabel(h.blighted, h.total_parcels, h.surveyed);
   const items = [
-    { n: h.blighted.toLocaleString(), l: "verified blighted parcels" },
+    { n: h.blighted.toLocaleString(), l: "blighted parcels" },
     { n: h.demolished_this_week.toLocaleString(), l: "demolished this week" },
     { n: h.state_owned_blighted.toLocaleString(), l: "state-owned blighted parcels" },
     {
       n: rate.replace(/^at least /, "≥ ").replace(" (reported so far)", ""),
-      l: "of Jackson parcels verified blighted",
+      l: "of Jackson parcels blighted",
       q: rate.includes("reported so far") ? `Reported so far; ${coverageLabel(h.surveyed, h.total_parcels)}.` : undefined,
     },
     { n: h.resolved_to_date.toLocaleString(), l: "parcels resolved to date" },

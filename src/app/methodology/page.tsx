@@ -41,7 +41,9 @@ export default async function Methodology() {
         </section>
 
         <section className="article-section">
-          <h2>How a parcel becomes &ldquo;verified blighted&rdquo;</h2>
+          <h2>How a parcel counts as blighted</h2>
+          <p>A parcel counts as blighted in one of two ways: the newsroom verified it, or the City Council found it a menace.</p>
+          <h3>Newsroom verification</h3>
           <ol>
             <li>A member of the newsroom staff photographs the property from the street, the sidewalk, or their own property, and marks which conditions they see: {CONDITIONS.map((c) => c.label.toLowerCase()).join("; ")}.</li>
             <li>The photo&apos;s location and time are read from the camera data and checked against the parcel, then removed from the published copy. Faces and license plates are blurred, automatically and then checked by an editor.</li>
@@ -50,16 +52,24 @@ export default async function Methodology() {
             </li>
             <li>Only then does anything about the parcel become public, dated the day it was approved. Later photos of the same parcel build a dated photo timeline, which is how repairs and demolitions are documented.</li>
           </ol>
+          <h3>City Council findings</h3>
+          <p>
+            When the City Council adjudicates a property a menace to public health and safety under Mississippi Code 21-19-11, or
+            orders it demolished, it does so after a hearing. We count that finding as blight from its date, taken from council
+            minutes and the City&apos;s code-enforcement records, and label it on the parcel. It stops counting once a later
+            record shows the property demolished, repaired or cleared.
+          </p>
           <p style={{ marginBottom: 0 }}>
-            <strong>City-flagged parcels.</strong> When City records show a citation, hearing or council action on a parcel our staff
-            hasn&apos;t checked, we show it separately as &ldquo;City-flagged&rdquo; and do not count it as verified blight until we do.
+            <strong>City-flagged parcels.</strong> A code-enforcement citation, hearing notice or other City action without a council
+            finding means a case is open, not that a finding was made. When our staff hasn&apos;t checked such a parcel, we show
+            it separately as &ldquo;City-flagged&rdquo; and don&apos;t count it as blight.
           </p>
         </section>
 
         <section className="article-section">
           <h2>What the numbers mean</h2>
           <ul>
-            <li><strong>Blighted</strong> means a parcel the newsroom has verified whose current status is &ldquo;verified blighted&rdquo; or &ldquo;City action pending.&rdquo; Repaired, cleared or demolished parcels no longer count.</li>
+            <li><strong>Blighted</strong> means a parcel the newsroom has verified, or the City Council has found a menace, whose current status is &ldquo;verified blighted&rdquo; or &ldquo;City action pending.&rdquo; Repaired, cleared or demolished parcels no longer count.</li>
             <li><strong>Owner rankings</strong> count an owner&apos;s blighted parcels across every name and LLC in their group. Homestead-exempt homes and parcels held by heirs or estates are left out of owner rankings, though they still count in street and area totals.</li>
             <li><strong>Street rankings</strong> divide blighted parcels by all parcels on the street. Streets with fewer than {STREET_MIN_PARCELS} parcels are left out so a short street can&apos;t top the list.</li>
             <li><strong>Change over 30 and 90 days</strong> compares the number of blighted parcels today with the same count on that earlier date, using each parcel&apos;s dated history.</li>

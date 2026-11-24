@@ -37,7 +37,7 @@ export const OWNER_TYPE_LABELS: Record<string, string> = {
  * follow-up submissions exist; handled in step 3 with the submissions table).
  */
 const PUBLIC_STATUS =
-  "(CASE WHEN p.status = 'submitted' THEN 'unreported' WHEN p.status = 'city_action' AND NOT p.ever_verified THEN 'city_flagged' ELSE p.status::text END)";
+  "(CASE WHEN p.status = 'submitted' THEN 'unreported' WHEN p.status = 'city_action' AND NOT p.ever_verified AND p.council_found_on IS NULL THEN 'city_flagged' ELSE p.status::text END)";
 
 /** Below parcel zoom: just the parcels with a public status, as points (a few hundred city-wide). */
 export async function getStatusPointsTile(z: number, x: number, y: number): Promise<Buffer> {
@@ -122,7 +122,7 @@ export async function getParcel(county: string, parcelId: string) {
             ${PUBLIC_STATUS} AS status,
             CASE WHEN p.status = 'submitted' THEN NULL ELSE p.substatus END AS substatus,
             CASE WHEN p.status = 'submitted' THEN NULL ELSE p.status_since END AS status_since,
-            p.owner_source, p.on_tax_roll,
+            p.owner_source, p.on_tax_roll, p.council_found_on::text,
             to_char(p.owner_as_of AT TIME ZONE 'America/Chicago', 'Mon DD, YYYY') AS owner_as_of,
             ST_X(p.pt) AS lon, ST_Y(p.pt) AS lat,
             (SELECT max(list_date)::text FROM app.state_inventory_latest si WHERE si.county = p.county AND si.parcel_id = p.parcel_id) AS state_list_date

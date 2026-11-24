@@ -35,7 +35,7 @@ export default async function CityPage({ searchParams }: { searchParams: Promise
         <PageHead
           kicker="Accountability"
           title="What the City is doing about it"
-          dek="Demolitions, citations and council actions on verified blighted property, and how long the City takes to act, from each parcel’s dated history."
+          dek="Demolitions, citations and council actions on blighted property, and how long the City takes to act, from each parcel’s dated history."
         />
 
         <div className="counters">
@@ -56,7 +56,7 @@ export default async function CityPage({ searchParams }: { searchParams: Promise
 
         <section className="card">
           <h2>Demolitions each week</h2>
-          <WeeklyBars label="Demolitions of verified blighted parcels per week, last 12 weeks" points={weeks.map((w) => ({ week: w.week, value: w.demolished }))} />
+          <WeeklyBars label="Demolitions per week, last 12 weeks" points={weeks.map((w) => ({ week: w.week, value: w.demolished }))} />
           <p className="note" style={{ marginTop: 10 }}>Weeks start Monday. The highlighted week is the current one, so far.</p>
         </section>
 
@@ -67,8 +67,8 @@ export default async function CityPage({ searchParams }: { searchParams: Promise
           </div>
           {r.city_only > 0 && (
             <p className="muted small" style={{ marginBottom: 0 }}>
-              Includes {r.city_only} parcel{r.city_only > 1 ? "s" : ""} the City acted on that the newsroom hasn&apos;t verified
-              (these aren&apos;t counted as verified blight elsewhere on the site).
+              Includes {r.city_only} City-flagged parcel{r.city_only > 1 ? "s" : ""}: the City acted with no council finding, and the
+              newsroom hasn&apos;t verified {r.city_only > 1 ? "them" : "it"} (these aren&apos;t counted as blight elsewhere on the site).
             </p>
           )}
         </section>

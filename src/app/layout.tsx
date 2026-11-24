@@ -16,7 +16,7 @@ import { query } from "@/lib/db";
 
 export const metadata: Metadata = {
   title: SITE_NAME,
-  description: "Verified blighted property in Jackson, Mississippi, built on the Hinds County land roll.",
+  description: "Blighted property in Jackson, Mississippi, built on the Hinds County land roll.",
 };
 
 export const viewport: Viewport = {

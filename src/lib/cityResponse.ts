@@ -10,7 +10,7 @@ const today = "(now() AT TIME ZONE 'America/Chicago')::date";
 export interface CityResponse {
   demolished: { week: number; month: number; year: number };
   stages: { substatus: string; parcels: number }[];
-  city_only: number; // city action on parcels the newsroom never verified
+  city_only: number; // City-flagged: city action with no council finding, on parcels the newsroom never verified
   median_days_to_action: number | null;
   n_with_action: number;
   median_days_to_resolution: number | null;
@@ -42,9 +42,7 @@ export async function cityResponse(): Promise<CityResponse> {
      FROM app.parcel_milestones pm JOIN app.parcel_facts f USING (county, parcel_id) WHERE f.in_city`,
   );
   const { rows: co } = await pool.query(
-    `SELECT count(*)::int n FROM app.parcel_status_current s JOIN app.parcel_facts f USING (county, parcel_id)
-     WHERE f.in_city AND s.status = 'city_action'
-       AND NOT EXISTS (SELECT 1 FROM app.status_events_live v WHERE v.county = s.county AND v.parcel_id = s.parcel_id AND v.status = 'verified_blighted')`,
+    `SELECT count(*)::int n FROM app.city_flagged_as_of(${today}) s JOIN app.parcel_facts f USING (county, parcel_id) WHERE f.in_city`,
   );
   const order = ["cited", "hearing_set", "adjudicated", "demolition_ordered", "lot_cleanup_ordered", "lien_filed"];
   return {

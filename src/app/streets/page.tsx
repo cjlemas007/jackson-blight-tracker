@@ -24,7 +24,7 @@ export default async function StreetsPage({
         <PageHead
           kicker="Streets"
           title="The streets with the most blight"
-          dek="Verified blighted parcels as a share of every parcel on the street. Short streets are left out so they can’t top the list."
+          dek="Blighted parcels as a share of every parcel on the street. Short streets are left out so they can’t top the list."
         />
         <form className="filters" method="get">
           <label>Sort by{" "}
@@ -50,7 +50,7 @@ export default async function StreetsPage({
           &ldquo;reported so far.&rdquo;
         </p>
         {rows.length === 0 ? (
-          <div className="card muted">{surveyedOnly ? "No fully surveyed streets have verified blight yet." : "No streets have verified blight yet."}</div>
+          <div className="card muted">{surveyedOnly ? "No fully surveyed streets have blight on record yet." : "No streets have blight on record yet."}</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table className="table">

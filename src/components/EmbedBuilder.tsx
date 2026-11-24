@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 const COUNTERS = [
-  { id: "blighted", label: "Verified blighted parcels" }, { id: "demolished_week", label: "Demolished this week" },
+  { id: "blighted", label: "Blighted parcels" }, { id: "demolished_week", label: "Demolished this week" },
   { id: "state_owned", label: "State-owned blighted" }, { id: "share", label: "Share of parcels blighted" },
   { id: "resolved", label: "Resolved to date" }, { id: "city_flagged", label: "City-flagged" },
 ];
