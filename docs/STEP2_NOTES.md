@@ -30,6 +30,11 @@ Built 2026-11-13. See README for how to run.
    Mar 17, 2026) and tax status unknown. Skipped: 3,371 shapes with no attributes, 369 parents of
    land roll parcels, and 51 already matched to a land roll parcel by address (both would double-count).
    No parcel-map parcel overlaps a land roll parcel's polygon by more than half.
+   **Revised 2026-11-24 (migration 1009):** most of those "parents" were separate parcels (the
+   children have their own shapes; 170-98 at 907 Union St is a foundation's lot, 170-98-1 is a
+   neighbor's), often tax-exempt, and the newsroom wants every parcel on the map. Now only shapes that are
+   the same property as a land roll parcel (same owner and house number, located on that shape)
+   are left out: 6. The universe grew from 116,091 to 116,419 parcels.
 2. **Tax amounts.** In the latest load, ~23k parcels have an unpaid 2025 bill, but the scraper
    captured `amount_still_owed` for only ~12k. For the rest, `current_due` falls back to
    `balance_due`, then `billed - paid`, and is flagged `current_due_estimated` (no interest). 189
