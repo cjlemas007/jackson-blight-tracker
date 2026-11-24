@@ -261,6 +261,8 @@ export default function ImportClient({ batch }: { batch: Batch }) {
   const pending = batch.rows.filter((r) => r.decision === "pending").length;
   const accepted = batch.rows.filter((r) => r.decision === "accepted").length;
   const skipped = batch.rows.filter((r) => r.decision === "skipped").length;
+  // A case log's case-number-only batch has nothing to accept: recording it just links case numbers to parcels.
+  const casesOnly = batch.kind === "code_enforcement" && accepted === 0 && skipped > 0;
   const waiting = batch.rows.filter((r) => r.decision === "waiting_case" && !r.apply_result).length;
   const followUpOf = (batch.stats as { followUpOf?: string }).followUpOf;
   const rows = filter === "all" ? batch.rows : batch.rows.filter((r) => r.decision === filter);
@@ -296,7 +298,7 @@ export default function ImportClient({ batch }: { batch: Batch }) {
           </div>
           {error && <div className="error">{error}</div>}
           <div className="row">
-            <button className="btn ok" disabled={busy || pending > 0 || accepted === 0} onClick={async () => {
+            <button className="btn ok" disabled={busy || pending > 0 || (accepted === 0 && !casesOnly)} onClick={async () => {
               setBusy(true);
               setError(null);
               try {
@@ -307,7 +309,9 @@ export default function ImportClient({ batch }: { batch: Batch }) {
                 setBusy(false);
               }
             }}>
-              {pending > 0 ? `Decide ${pending} more row${pending > 1 ? "s" : ""} to apply` : `Record ${accepted} row${accepted === 1 ? "" : "s"}`}
+              {pending > 0 ? `Decide ${pending} more row${pending > 1 ? "s" : ""} to apply`
+                : casesOnly ? `Record (links ${skipped} case number${skipped === 1 ? "" : "s"}, changes no statuses)`
+                : `Record ${accepted} row${accepted === 1 ? "" : "s"}`}
             </button>
             <button className="btn secondary" disabled={busy} onClick={async () => {
               if (!confirm("Discard this import? Nothing from it will be recorded.")) return;
