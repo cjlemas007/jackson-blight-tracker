@@ -20,7 +20,8 @@
     "models": "node scripts/fetch-models.mjs",
     "detect": "tsx scripts/detect-folder.ts",
     "dev:demo": "tsx scripts/dev-demo.ts",
-    "minutes:import": "tsx scripts/import-minutes.ts"
+    "minutes:import": "tsx scripts/import-minutes.ts",
+    "caselog:import": "tsx scripts/import-caselog.ts"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^9.6.1",
@@ -32,6 +33,7 @@
     "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "read-excel-file": "9.3.14",
     "server-only": "^0.0.1",
     "sharp": "^0.35.5",
     "unpdf": "^1.9.1"

@@ -37,6 +37,8 @@ interface Batch {
   rows: Row[];
 }
 
+const ROWS_PER_PAGE = 200;
+
 const METHOD: Record<string, string> = {
   parcel_id: "parcel ID", dpin: "DPIN", address_exact: "exact address", address_fuzzy: "similar address", manual: "picked by admin",
   case_no: "case number",
@@ -235,7 +237,7 @@ function ReviewRow({ batch, r, onChange }: { batch: Batch; r: Row; onChange: () 
               disabled={!r.match_parcel_id} onClick={() => update({ decision: "accepted" })}>Accept</button>
             <button type="button" className={`btn ${r.decision === "skipped" ? "danger" : "secondary"}`} style={{ padding: "4px 8px", fontSize: 12 }}
               onClick={() => update({ decision: "skipped" })}>Skip</button>
-            {r.input_case_no && !r.match_parcel_id && r.decision !== "waiting_case" && (
+            {batch.kind === "council_agenda" && r.input_case_no && !r.match_parcel_id && r.decision !== "waiting_case" && (
               <button type="button" className="btn secondary" style={{ padding: "4px 8px", fontSize: 12 }}
                 onClick={() => update({ decision: "waiting_case" })}>Wait for case log</button>
             )}
@@ -254,6 +256,7 @@ export default function ImportClient({ batch }: { batch: Batch }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "pending" | "accepted" | "skipped" | "waiting_case">("all");
+  const [shown, setShown] = useState(ROWS_PER_PAGE); // a case log has thousands of rows; draw them a page at a time
   if (batch.status === "mapping") return <Mapping batch={batch} />;
   const pending = batch.rows.filter((r) => r.decision === "pending").length;
   const accepted = batch.rows.filter((r) => r.decision === "accepted").length;
@@ -316,7 +319,7 @@ export default function ImportClient({ batch }: { batch: Batch }) {
       )}
       <nav className="tabs">
         {(["all", "pending", "accepted", "waiting_case", "skipped"] as const).filter((f) => f !== "waiting_case" || waiting > 0).map((f) => (
-          <a key={f} href="#" aria-current={filter === f ? "page" : undefined} onClick={(e) => { e.preventDefault(); setFilter(f); }}>
+          <a key={f} href="#" aria-current={filter === f ? "page" : undefined} onClick={(e) => { e.preventDefault(); setFilter(f); setShown(ROWS_PER_PAGE); }}>
             {f === "all" ? `All (${batch.rows.length})` : f === "pending" ? `Need a decision (${pending})` : f === "accepted" ? `Accepted (${accepted})`
               : f === "waiting_case" ? `Waiting for case log (${waiting})` : `Skipped (${skipped})`}
           </a>
@@ -331,10 +334,17 @@ export default function ImportClient({ batch }: { batch: Batch }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => <ReviewRow key={r.id} batch={batch} r={r} onChange={() => window.location.reload()} />)}
+            {rows.slice(0, shown).map((r) => <ReviewRow key={r.id} batch={batch} r={r} onChange={() => window.location.reload()} />)}
           </tbody>
         </table>
       </div>
+      {rows.length > shown && (
+        <div className="row">
+          <span className="muted">Showing {shown} of {rows.length} rows.</span>
+          <button className="btn secondary" onClick={() => setShown((n) => n + ROWS_PER_PAGE)}>Show {Math.min(ROWS_PER_PAGE, rows.length - shown)} more</button>
+          <button className="btn secondary" onClick={() => setShown(rows.length)}>Show all</button>
+        </div>
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { WorkflowError } from "./submissions";
 import { cleanText, parseSitus } from "./normalize/address";
 import { storage } from "./storage";
 import { normalizeCaseNo } from "./agendaPdf";
+import type { CaseLogEntry } from "./caseLog";
 
 export type ImportKind = "demolition_list" | "code_enforcement" | "council_agenda" | "sos_forfeited";
 
@@ -181,6 +182,7 @@ async function matchByParcelOrAddress(
 
 async function matchBatch(c: pg.PoolClient, batchId: string) {
   const idx = await loadIndex(c);
+  const { rows: kb } = await c.query<{ kind: ImportKind }>("SELECT kind FROM app.import_batches WHERE id = $1", [batchId]);
   await c.query("SELECT set_limit(0.45)"); // trigram threshold for %
   const { rows } = await c.query<{ id: number; input_parcel_id: string | null; input_address: string | null; input_case_no: string | null }>(
     "SELECT id, input_parcel_id, input_address, input_case_no FROM app.import_rows WHERE batch_id = $1 ORDER BY row_num",
@@ -189,9 +191,9 @@ async function matchBatch(c: pg.PoolClient, batchId: string) {
   const counts = { accepted: 0, review: 0, unmatched: 0, waiting: 0 };
   for (const r of rows) {
     const m = await matchOne(c, idx, { parcelId: r.input_parcel_id, address: r.input_address, caseNo: r.input_case_no });
-    // Nothing to go on but a case number we haven't linked yet: wait for a case log instead of
-    // blocking the batch.
-    const waiting = !m.accepted && !m.parcelId && !m.candidates.length && !!r.input_case_no;
+    // A council row with nothing to go on but a case number we haven't linked yet waits for a case
+    // log instead of blocking the batch. (In a case log itself it needs a decision like any other row.)
+    const waiting = kb[0]?.kind === "council_agenda" && !m.accepted && !m.parcelId && !m.candidates.length && !!r.input_case_no;
     await c.query(
       `UPDATE app.import_rows SET match_county = CASE WHEN $2::text IS NULL THEN NULL ELSE 'Hinds' END, match_parcel_id = $2,
          match_method = $3, match_score = $4, candidates = $5, decision = $6
@@ -408,39 +410,95 @@ export async function createAgendaBatch(
   }
 
   const title = input.title.trim() || `Council meeting ${date}`;
+  return insertReviewBatch(staff, {
+    kind: "council_agenda", source: "council_agenda", title, documentId: input.documentId || null, date, batchSub,
+    headers: input.entries ? ["item", "case", "parcel", "address"] : ["line"],
+    mapping: input.entries ? { parcelId: "parcel", address: "address", caseNo: "case" } : { address: "line" },
+    rows: raws.map((r) => ({
+      row_num: r.row_num, raw: r.raw, parcel: r.parcel, address: r.address, case_no: r.case_no, item: r.item, sub: r.sub, date: null, skip: r.skip,
+      note: [r.item && /^\d+$/.test(r.item) ? `Item ${r.item}` : r.item, r.case_no && `case ${r.case_no}`, r.extra, r.skip && `skipped: ${r.skip}`]
+        .filter(Boolean).join(", ") || null,
+    })),
+    auditDetail: { fromPdf: !!input.entries },
+  });
+}
+
+/**
+ * A City Code Enforcement case log (see caseLog.ts): one row per case, each with its own date and
+ * action. Rows marked `skip` arrive skipped; when the batch is recorded they still link their case
+ * number to the parcel the City gave (learnCases), without changing the parcel's status.
+ */
+export async function createCaseLogBatch(
+  staff: Staff,
+  input: { title: string; entries: CaseLogEntry[]; documentId?: string | null; logDate?: string | null },
+): Promise<string> {
+  requireAdmin(staff);
+  if (!input.entries.length) throw new WorkflowError("The case log has no cases to import.");
+  if (input.entries.length > MAX_ROWS) throw new WorkflowError(`Up to ${MAX_ROWS} cases at a time.`);
+  const rows = input.entries.map((e, i) => {
+    const caseNo = normalizeCaseNo(e.caseNo);
+    if (!caseNo) throw new WorkflowError(`"${e.caseNo}" doesn't look like a case number (like 25-2751).`);
+    const date = parseLooseDate(e.date);
+    if (!date) throw new WorkflowError(`Case ${e.caseNo} has no valid date.`);
+    if (!statusOf(e.substatus)) throw new WorkflowError(`Unknown action for case ${e.caseNo}.`);
+    const raw: Record<string, string> = { case: caseNo, date };
+    if (e.parcelId) raw.parcel = e.parcelId.trim();
+    if (e.address) raw.address = e.address.trim();
+    return {
+      row_num: i + 1, raw, parcel: e.parcelId?.trim() || null, address: e.address?.trim() || null, case_no: caseNo, item: null,
+      sub: e.substatus, date, skip: e.skip ? String(e.skip).slice(0, 200) : null,
+      note: [e.note, e.skip && `skipped: ${e.skip}`].filter(Boolean).join("; ").slice(0, 400) || null,
+    };
+  });
+  const tally = new Map<string, number>();
+  for (const r of rows) tally.set(r.sub, (tally.get(r.sub) ?? 0) + 1);
+  const batchSub = [...tally].sort((a, b) => b[1] - a[1])[0][0];
+  return insertReviewBatch(staff, {
+    kind: "code_enforcement", source: "city_record", title: input.title.trim() || KIND_DEFAULTS.code_enforcement.label,
+    documentId: input.documentId || null, date: null, docDate: input.logDate ?? null, batchSub,
+    headers: ["case", "date", "parcel", "address"], mapping: { parcelId: "parcel", address: "address", caseNo: "case", date: "date" },
+    rows: rows.map((r) => ({ ...r, sub: r.sub === batchSub ? null : r.sub })),
+  });
+}
+
+/** Writes a batch that skips column mapping (agenda and case-log entries), matches it, and pre-skips rows. */
+async function insertReviewBatch(
+  staff: Staff,
+  b: {
+    kind: ImportKind; source: string; title: string; documentId: string | null; date: string | null; docDate?: string | null; batchSub: string;
+    headers: string[]; mapping: Mapping; auditDetail?: Record<string, unknown>;
+    rows: {
+      row_num: number; raw: Record<string, string>; parcel: string | null; address: string | null; case_no: string | null; item: string | null;
+      sub: string | null; date: string | null; skip: string | null; note: string | null;
+    }[];
+  },
+): Promise<string> {
   return tx(async (c) => {
     const { rows } = await c.query<{ id: string }>(
       `INSERT INTO app.import_batches (kind, title, document_id, headers, mapping, default_date, event_status, event_substatus, source, created_by, status)
-       VALUES ('council_agenda', $1, $2, $3, $4, $5, $6, $7, 'council_agenda', $8, 'review') RETURNING id`,
-      [
-        title, input.documentId || null,
-        input.entries ? ["item", "case", "parcel", "address"] : ["line"],
-        input.entries ? { parcelId: "parcel", address: "address", caseNo: "case" } : { address: "line" },
-        date, statusOf(batchSub), batchSub, staff.id,
-      ],
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'review') RETURNING id`,
+      [b.kind, b.title, b.documentId, b.headers, b.mapping, b.date, statusOf(b.batchSub), b.batchSub, b.source, staff.id],
     );
     const id = rows[0].id;
     await c.query(
-      `INSERT INTO app.import_rows (batch_id, row_num, raw, input_parcel_id, input_address, input_case_no, agenda_item, event_substatus, note)
-       SELECT $1, r.row_num, r.raw, r.parcel, r.address, r.case_no, r.item, r.sub,
-              NULLIF(concat_ws(', ', CASE WHEN r.item ~ '^[0-9]+$' THEN 'Item ' || r.item ELSE r.item END, 'case ' || r.case_no, r.extra,
-                               'skipped: ' || r.skip), '')
-       FROM json_to_recordset($2::json) AS r(row_num int, raw jsonb, parcel text, address text, case_no text, item text, sub text, skip text, extra text)`,
-      [id, JSON.stringify(raws)],
+      `INSERT INTO app.import_rows (batch_id, row_num, raw, input_parcel_id, input_address, input_case_no, agenda_item, event_substatus, event_date, note)
+       SELECT $1, r.row_num, r.raw, r.parcel, r.address, r.case_no, r.item, r.sub, r.date, r.note
+       FROM json_to_recordset($2::json) AS r(row_num int, raw jsonb, parcel text, address text, case_no text, item text, sub text, date date, note text)`,
+      [id, JSON.stringify(b.rows)],
     );
-    if (input.documentId) {
+    if (b.documentId) {
       await c.query("UPDATE app.documents SET document_date = COALESCE(document_date, $2), title = COALESCE(NULLIF(title, original_name), $3) WHERE id = $1", [
-        input.documentId, date, title,
+        b.documentId, b.docDate ?? b.date, b.title,
       ]);
     }
     const counts = await matchBatch(c, id);
-    // Rows the source itself says not to record (not adopted, dismissed) stay visible but skipped.
-    const skipRows = raws.filter((r) => r.skip).map((r) => r.row_num);
+    // Rows the source itself says not to record (not adopted, dismissed, case-number only) stay visible but skipped.
+    const skipRows = b.rows.filter((r) => r.skip).map((r) => r.row_num);
     if (skipRows.length) {
       await c.query("UPDATE app.import_rows SET decision = 'skipped' WHERE batch_id = $1 AND row_num = ANY($2)", [id, skipRows]);
     }
     await c.query("UPDATE app.import_batches SET stats = $2 WHERE id = $1", [id, JSON.stringify({ ...counts, preSkipped: skipRows.length })]);
-    await audit(c, staff.id, "import.create", "import", id, { kind: "council_agenda", rows: raws.length, fromPdf: !!input.entries });
+    await audit(c, staff.id, "import.create", "import", id, { kind: b.kind, rows: b.rows.length, ...b.auditDetail });
     return id;
   });
 }
@@ -521,39 +579,17 @@ export async function applyBatch(staff: Staff, batchId: string) {
       [batchId],
     );
     const result = { events: 0, duplicates: 0, listed: 0, skipped: 0 };
-    for (const r of rows) {
-      const date = r.event_date ?? b.default_date;
-      if (!date) throw new WorkflowError(`Row ${r.row_num} has no date.`);
-      if (b.kind === "sos_forfeited") {
-        const ins = await c.query(
-          `INSERT INTO app.state_inventory (county, parcel_id, list_date, batch_id, raw) VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT DO NOTHING`,
-          [r.match_county, r.match_parcel_id, date, batchId, r.raw],
-        );
-        await c.query("UPDATE app.import_rows SET apply_result = $2 WHERE id = $1", [r.id, ins.rowCount ? "listed" : "duplicate"]);
-        ins.rowCount ? result.listed++ : result.duplicates++;
-        continue;
-      }
-      const sub = r.event_substatus ?? b.event_substatus!;
-      const status = statusOf(sub)!;
-      const dup = await c.query(
-        `SELECT id FROM app.status_events_live
-         WHERE county = $1 AND parcel_id = $2 AND status = $3 AND substatus = $4 AND effective_date = $5 LIMIT 1`,
-        [r.match_county, r.match_parcel_id, status, sub, date],
+    const undated = rows.find((r) => !(r.event_date ?? b.default_date));
+    if (undated) throw new WorkflowError(`Row ${undated.row_num} has no date.`);
+    if (b.kind !== "sos_forfeited") Object.assign(result, await applyEvents(c, b, staff));
+    for (const r of b.kind === "sos_forfeited" ? rows : []) {
+      const ins = await c.query(
+        `INSERT INTO app.state_inventory (county, parcel_id, list_date, batch_id, raw) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT DO NOTHING`,
+        [r.match_county, r.match_parcel_id, r.event_date ?? b.default_date, batchId, r.raw],
       );
-      if (dup.rows.length) {
-        await c.query("UPDATE app.import_rows SET apply_result = 'duplicate', applied_event_id = $2 WHERE id = $1", [r.id, dup.rows[0].id]);
-        result.duplicates++;
-        continue;
-      }
-      const note = [`${b.title}, row ${r.row_num}`, r.note].filter(Boolean).join(": ").slice(0, 500);
-      const ev = await c.query<{ id: number }>(
-        `INSERT INTO app.status_events (county, parcel_id, status, substatus, effective_date, source, document_id, note, recorded_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-        [r.match_county, r.match_parcel_id, status, sub, date, b.source, b.document_id, note, staff.id],
-      );
-      await c.query("UPDATE app.import_rows SET apply_result = 'event', applied_event_id = $2 WHERE id = $1", [r.id, ev.rows[0].id]);
-      result.events++;
+      await c.query("UPDATE app.import_rows SET apply_result = $2 WHERE id = $1", [r.id, ins.rowCount ? "listed" : "duplicate"]);
+      ins.rowCount ? result.listed++ : result.duplicates++;
     }
     const { rows: sk } = await c.query(
       "SELECT count(*) FILTER (WHERE decision = 'skipped')::int skipped, count(*) FILTER (WHERE decision = 'waiting_case')::int waiting FROM app.import_rows WHERE batch_id = $1",
@@ -571,20 +607,61 @@ export async function applyBatch(staff: Staff, batchId: string) {
   });
 }
 
+/**
+ * One statement for the whole batch (a case log has thousands of rows; a row-by-row loop would
+ * outlast the web request). Rows matching a live event with the same status, sub-status and date,
+ * or an earlier row in the same batch, are marked duplicates pointing at that event.
+ */
+async function applyEvents(c: pg.PoolClient, b: Awaited<ReturnType<typeof lockBatch>>, staff: Staff) {
+  const { rows } = await c.query<{ apply_result: string }>(
+    `WITH r AS (
+       SELECT i.id, i.row_num, i.match_county AS county, i.match_parcel_id AS parcel_id, i.note,
+              COALESCE(i.event_substatus, $2::text) AS sub, COALESCE(i.event_date, $3::date) AS d, a.status::app.parcel_status AS status
+       FROM app.import_rows i JOIN json_to_recordset($4::json) AS a(status text, substatus text) ON a.substatus = COALESCE(i.event_substatus, $2::text)
+       WHERE i.batch_id = $1 AND i.decision = 'accepted'
+     ), k AS (
+       SELECT r.*, (SELECT e.id FROM app.status_events_live e
+                    WHERE e.county = r.county AND e.parcel_id = r.parcel_id AND e.status = r.status AND e.substatus = r.sub AND e.effective_date = r.d
+                    ORDER BY e.id LIMIT 1) AS existing
+       FROM r
+     ), firsts AS (
+       SELECT DISTINCT ON (county, parcel_id, sub, d) * FROM k WHERE existing IS NULL ORDER BY county, parcel_id, sub, d, row_num
+     ), ins AS (
+       INSERT INTO app.status_events (county, parcel_id, status, substatus, effective_date, source, document_id, note, recorded_by)
+       SELECT county, parcel_id, status, sub, d, $5::app.event_source, $6::uuid, left(concat_ws(': ', $7::text || ', row ' || row_num, note), 500), $8
+       FROM firsts ORDER BY row_num
+       RETURNING id, county, parcel_id, substatus, effective_date
+     )
+     UPDATE app.import_rows u
+     SET apply_result = CASE WHEN f.id IS NULL THEN 'duplicate' ELSE 'event' END, applied_event_id = COALESCE(k.existing, ins.id)
+     FROM k LEFT JOIN firsts f ON f.id = k.id
+            LEFT JOIN ins ON ins.county = k.county AND ins.parcel_id = k.parcel_id AND ins.substatus = k.sub AND ins.effective_date = k.d
+     WHERE u.id = k.id
+     RETURNING u.apply_result`,
+    [b.id, b.event_substatus, b.default_date, JSON.stringify(ACTIONS), b.source, b.document_id, b.title, staff.id],
+  );
+  const { rows: all } = await c.query<{ n: number }>("SELECT count(*)::int n FROM app.import_rows WHERE batch_id = $1 AND decision = 'accepted'", [b.id]);
+  if (all[0].n !== rows.length) throw new WorkflowError("Some rows have an unknown action; fix them and record again.");
+  return { events: rows.filter((r) => r.apply_result === "event").length, duplicates: rows.filter((r) => r.apply_result === "duplicate").length };
+}
+
 // ---------------------------------------------------------------------------------------
 // Code-enforcement case numbers
 // ---------------------------------------------------------------------------------------
 
 /**
  * Every recorded row that has both a case number and a parcel links that case to the parcel (a
- * newer link replaces an older one). Returns how many links were added or changed.
+ * newer link replaces an older one). In a code-enforcement case log, skipped rows count too when the
+ * City's own parcel ID matched: skipping there means "don't change the status", not "wrong parcel".
+ * Returns how many links were added or changed.
  */
 async function learnCases(c: pg.PoolClient, batchId: string): Promise<number> {
   const r = await c.query(
     `INSERT INTO app.code_cases (case_no, county, parcel_id, address, source_batch_id)
      SELECT DISTINCT ON (r.input_case_no) r.input_case_no, r.match_county, r.match_parcel_id, r.input_address, r.batch_id
-     FROM app.import_rows r
-     WHERE r.batch_id = $1 AND r.decision = 'accepted' AND r.input_case_no IS NOT NULL AND r.match_parcel_id IS NOT NULL
+     FROM app.import_rows r JOIN app.import_batches b ON b.id = r.batch_id
+     WHERE r.batch_id = $1 AND r.input_case_no IS NOT NULL AND r.match_parcel_id IS NOT NULL
+       AND (r.decision = 'accepted' OR (r.decision = 'skipped' AND b.kind = 'code_enforcement' AND r.match_method = 'parcel_id'))
      ORDER BY r.input_case_no, r.row_num DESC
      ON CONFLICT (case_no) DO UPDATE SET parcel_id = EXCLUDED.parcel_id, county = EXCLUDED.county,
        address = COALESCE(EXCLUDED.address, app.code_cases.address), source_batch_id = EXCLUDED.source_batch_id, updated_at = now()
