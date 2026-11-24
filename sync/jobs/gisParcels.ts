@@ -4,6 +4,7 @@ import { queryUrl, type GeoJsonFeature } from "../arcgis";
 import { PARCELS_LAYER } from "../sources";
 import { cleanText, normalizeStreetName } from "@/lib/normalize/address";
 import { classifyOwner, isEstateOrHeirs } from "@/lib/normalize/owner";
+import { canonicalParcelId } from "@/lib/normalize/parcel";
 
 const PAGE = 2000;
 /** The layer's objectIdField. Not "OBJECTID": that attribute exists but has duplicate values. */
@@ -17,7 +18,7 @@ export function normalizeGisAttrs(p: Record<string, unknown>) {
   const bldgYear = num(p.bm_year);
   const owner = cleanText([str(p.name1), str(p.name2)].filter(Boolean).join(" ")) || null;
   return {
-    parcel_id: str(p.PARCEL_F) ?? str(p.parcel_f_1),
+    parcel_id: canonicalParcelId(str(p.PARCEL_F) ?? str(p.parcel_f_1)), // the map pads some IDs: "59-10-010"
     dpin: str(p.DPIN) ?? str(p.parcel),
     owner_name_gis: owner,
     owner_type: classifyOwner(owner),
