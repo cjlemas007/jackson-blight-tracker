@@ -3,7 +3,7 @@ import type pg from "pg";
 import { freshTestDb } from "./helpers/testdb";
 import { getPool } from "@/lib/db";
 import { createStaff, type Staff } from "@/lib/auth/staff";
-import { caseLogAddress, cellDate, planCaseLog, readCaseLog } from "@/lib/caseLog";
+import { caseLogAddress, cellDate, cityPageTable, planCaseLog, readCaseLog } from "@/lib/caseLog";
 import { applyBatch, batchDetail, createAgendaBatch, createCaseLogBatch, setAsidePending, updateRow } from "@/lib/imports";
 
 const HEADER = ["Record #", "Date Submitted", "Address", "Record Status", "Case Category", "Mbl", "Council RESOLUTION: Property Adjudicated A Menace"];
@@ -35,6 +35,25 @@ describe("reading a Code Enforcement case log", () => {
     const shuffled = [["Mbl", "Case Category", "Address", "Date Submitted", "Record #"], ["500-1", "Housing", "12 ELM ST", "2025-01-02", "CE-25-1"]];
     expect(readCaseLog(shuffled).rows[0]).toMatchObject({ caseNo: "25-1", parcelId: "500-1", category: "Housing", adjudicated: null });
     expect(() => readCaseLog([["Record #", "Address"], ["CE-25-1", "x"]])).toThrow(/Missing column\(s\): opened, parcelId, category/);
+  });
+
+  it("reads the cases built into the City's Blight Action page and leaves out fire reports", () => {
+    const data = {
+      records: [
+        { layer: "Active Case", id: "CE-26-979", date: "2026-04-24", address: "117 BARBARA AVE, Jackson, MS 39209", parcel: "641-40", type: "Trash & Debris", status: "Active", note: "a } in text" },
+        { layer: "Burned Structure", id: "26-005356", date: "", address: "1317 Mccluer Rd", parcel: "", type: "Structure Fire", status: "In Progress" },
+      ],
+      demolitions: [{ layer: "Demolition", id: "CE-26-954", date: "2026-04-23", address: "420 BONITA DR, Jackson, MS 39209", parcel: "809-105", type: "Demolition", status: "Active" }],
+      schools: [],
+    };
+    const html = `<script> window.JR_DATA = ${JSON.stringify(data)}; const JR_WARDS={"type":"FeatureCollection"};</script>`;
+    const { rows, problems } = readCaseLog(cityPageTable(html));
+    expect(problems).toEqual([]);
+    expect(rows.map((r) => [r.caseNo, r.opened, r.address, r.parcelId, r.category])).toEqual([
+      ["26-979", "2026-04-24", "117 BARBARA AVE", "641-40", "Trash & Debris"],
+      ["26-954", "2026-04-23", "420 BONITA DR", "809-105", "Demolition"],
+    ]);
+    expect(() => cityPageTable("<html>no data</html>")).toThrow(/JR_DATA/);
   });
 
   it("cleans dates and addresses", () => {

@@ -89,6 +89,45 @@ export function readCaseLog(table: unknown[][]): { rows: CaseLogRow[]; problems:
   return { rows, problems };
 }
 
+/**
+ * The City's Blight Action page (jacksonms.gov/.../blightaction/) builds its dashboard from data
+ * embedded in the page as `window.JR_DATA`: open code-enforcement cases (`records`, layer "Active
+ * Case"), demolition cases (`demolitions`), and Fire Department burned-structure reports (layer
+ * "Burned Structure", no case number or parcel; left out here). Returns the cases as a table in the
+ * case log's own column names, for readCaseLog. Checked 2026-11-24: its `date` is the date the case
+ * was opened (matches the case log on 4,071 of 4,077 shared cases).
+ */
+export function cityPageTable(html: string): unknown[][] {
+  const at = html.indexOf("window.JR_DATA");
+  if (at < 0) throw new Error("This page doesn't contain the City's blight data (window.JR_DATA).");
+  const start = html.indexOf("{", at);
+  const data = parseJsonPrefix(html.slice(start)) as { records?: Record<string, unknown>[]; demolitions?: Record<string, unknown>[] };
+  const cases = [...(data.records ?? []), ...(data.demolitions ?? [])].filter((r) => r.layer !== "Burned Structure");
+  return [
+    ["Record #", "Date Submitted", "Address", "Record Status", "Case Category", "Mbl"],
+    ...cases.map((r) => [r.id, r.date, r.address, r.status, r.type, r.parcel]),
+  ];
+}
+
+/** JSON.parse of the object at the start of `s`, ignoring whatever follows it (the rest of the script). */
+function parseJsonPrefix(s: string): unknown {
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0) return JSON.parse(s.slice(0, i + 1));
+    }
+  }
+  throw new Error("The City's blight data is cut off.");
+}
+
 export interface CaseLogEntry {
   caseNo: string;
   date: string;
